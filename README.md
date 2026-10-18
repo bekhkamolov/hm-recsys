@@ -7,8 +7,14 @@ online (A/B test analysis, power, variance reduction).
 
 Status: data, evaluation, baselines, candidate generation and the ranker are done (Days 1-5), as are the real A/B test analysis (Day 6), the experiment design simulations (Day 7), and the serving API,
 Docker image, MLflow tracking and CI (Day 8). Day 9: drift monitoring and the retraining analysis are done, and
-the Render deployment is configured (`render.yaml`) but not live yet. This README only
+the service is deployed on Render (`render.yaml`). This README only
 reports numbers that were actually measured.
+
+**Live demo: https://hm-recsys.onrender.com** (a free instance that sleeps when idle, so the first request can take a
+while; it serves a small synthetic demo model, not the H&M model, see "Deployment").
+Try [`/recommend?customer_id=c0001`](https://hm-recsys.onrender.com/recommend?customer_id=c0001),
+an unknown id for the popularity fallback, [`/health`](https://hm-recsys.onrender.com/health),
+[`/stats`](https://hm-recsys.onrender.com/stats) and the interactive [`/docs`](https://hm-recsys.onrender.com/docs).
 
 ## Setup
 
@@ -670,7 +676,10 @@ or image. The code path, the API and the CI checks are identical to the H&M vers
 locally with `scripts/build_serving.py` (see above). A test fails if the committed demo artifacts stop matching
 the current feature set. Check a running service with
 `python scripts/smoke_test.py https://<service>.onrender.com`. Render's free tier stops idle services,
-so the first request can be slow; the script waits for the service to wake up.
+so the first request can be slow; the script waits for the service to wake up. The deployed service at
+https://hm-recsys.onrender.com passes all four smoke-test checks, and returns the same scores for `c0001` as the
+same demo model run locally. A known-customer request took 125 ms from my machine, which is mostly network time
+(the model itself takes about 1 ms, see `/stats`).
 
 ### Monitoring
 
