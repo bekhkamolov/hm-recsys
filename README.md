@@ -6,7 +6,8 @@ dataset (real transactions), plus an experimentation module on how to measure a 
 online (A/B test analysis, power, variance reduction).
 
 Status: data, evaluation, baselines, candidate generation and the ranker are done (Days 1-5), as are the real A/B test analysis (Day 6), the experiment design simulations (Day 7), and the serving API,
-Docker image, MLflow tracking and CI (Day 8); this README only
+Docker image, MLflow tracking and CI (Day 8). Day 9: drift monitoring and the retraining analysis are done, and
+the Render deployment is configured (`render.yaml`) but not live yet. This README only
 reports numbers that were actually measured.
 
 ## Setup
@@ -36,7 +37,9 @@ Raw data is not committed (Kaggle competition licence and size). To get it:
 8. `python scripts/download_ab_data.py` and `python scripts/ab_cookie_cats.py` run the A/B test analysis
    on the public Cookie Cats data (needs only the Kaggle token, no H&M data).
 9. `python scripts/experiment_sim.py` runs the power, CUPED and peeking simulations on H&M behaviour.
-10. `python scripts/build_serving.py` builds the serving artifacts; `python scripts/track_results.py`
+10. `python scripts/drift_check.py` runs the drift and model-staleness experiment (roughly 10 to 15 minutes);
+    `python scripts/smoke_test.py <url>` checks a running service.
+11. `python scripts/build_serving.py` builds the serving artifacts; `python scripts/track_results.py`
     logs the saved results to MLflow (see "Serving, tracking and CI").
 
 Dependencies are split into extras: the base install is what the serving image needs; `.[train]` adds
@@ -92,6 +95,12 @@ Every result reported below states the sample it was computed on.
 | Snapshot date | 2020-09-09 (validation-week start) | Keeps the test week untouched for the final evaluation. |
 | Packaging | Base install = serving runtime; training, serving, tracking and dev in extras | A slim image and a faster build; a test checks the API imports no training code. |
 | Tracking backend | MLflow with SQLite (`mlflow-skinny` + SQLAlchemy + Alembic) | MLflow 3.x refuses its file store by default; skinny is enough to log and read runs. |
+| Deployed model | Synthetic demo model baked into the image | The H&M data licence forbids redistribution, and per-customer rows derived from it should not be in a public repo or image. Same code path as the H&M model. |
+| Drift statistic | PSI, 10 reference-quantile bins, missing as its own bin, exact-value bins for few-valued features | Standard in credit and ranking monitoring; one number per feature that is easy to alert on. |
+| Drift thresholds | 0.1 and 0.25 | Convention. The noise floor (mean 0.0017, max 0.0096) shows they are far above sampling noise here, but they are not tuned to performance. |
+| Noise floor | PSI between two halves of one week split by customer | A row-level split puts the same customer in both halves and hides the noise (a test checks this). |
+| Retraining evidence | Models trained 0 to 3 weeks earlier, 3 seeds each, scored on the validation week | Measures what staleness costs instead of inferring it from PSI. One week and one sample, so differences under 0.0006 are noise. |
+| Live monitoring | In-process `/stats` (fallback share, scoring time), no customer ids | Cheap and privacy-safe; counters reset on restart and are per process. |
 | Reference baseline | Buy again + global popularity | The age-group variant did not beat it, so the simpler one is kept (see Baselines). |
 
 ## Exploratory analysis
@@ -644,6 +653,100 @@ date, with no scheduled rebuild yet. Features are not recomputed per request, so
 snapshot does not change a customer's list. The latency figure is local and single-process. There is no
 authentication or rate limiting on the endpoint. Monitoring and deployment are Day 9.
 
+## Deployment and monitoring (Day 9)
+
+### Deployment (Render)
+
+`render.yaml` is a Render Blueprint for a free web service in Frankfurt that builds the same
+`Dockerfile`, health-checks `/health`, and redeploys only after CI passes (`autoDeployTrigger: checksPass`),
+the same setup as the support agent. To deploy: in the Render dashboard choose New, then Blueprint, select this
+repository and apply; no secrets are needed.
+
+**What is deployed is a synthetic demo model, not the H&M model.** The image contains a small model trained on
+synthetic data (`deploy/demo-artifacts`, made by `scripts/make_demo_artifacts.py`, 289 fake customers `c0001`
+onwards) and `ARTIFACT_DIR` points at it. I did this on purpose: the H&M data is licensed for the competition and
+must not be redistributed, and per-customer feature rows derived from it do not belong in a public repository
+or image. The code path, the API and the CI checks are identical to the H&M version, which you can run
+locally with `scripts/build_serving.py` (see above). A test fails if the committed demo artifacts stop matching
+the current feature set. Check a running service with
+`python scripts/smoke_test.py https://<service>.onrender.com`. Render's free tier stops idle services,
+so the first request can be slow; the script waits for the service to wake up.
+
+### Monitoring
+
+**Operational numbers.** `GET /stats` returns request counts by source (ranker vs popularity fallback), the fallback
+share, and the mean and 95th percentile scoring time over the last 1,000 requests. It keeps no customer ids and counts
+since the process started. A rising fallback share means customers are missing from the precomputed table (the snapshot
+is getting old or the customer base moved). `GET /health` shows which snapshot is loaded.
+
+**Data drift: population stability index (PSI).** PSI compares one variable's distribution in a reference sample
+(here the data the model was trained on) with a current sample (here the candidates for the week being served):
+ten bins from the reference quantiles, missing values as their own bin, and the sum of (current share - reference
+share) x ln(current share / reference share). Variables with 10 or fewer distinct values are binned by value. The usual
+reading is below 0.1 stable, 0.1 to 0.25 moderate, above 0.25 major. Those cut-offs are convention, not validated
+on this data. Code: `src/hm_recsys/monitoring.py`; experiment: `python scripts/drift_check.py` (roughly 10 to 15 minutes);
+numbers in `results/drift_val.json`. The reference is the 4 training weeks of the headline model (7.34M candidate
+rows); the current sample is the validation-week snapshot (1.81M rows, 2020-09-09). The test week is not used.
+
+| Quantity | Value |
+|---|---|
+| Mean PSI over the 33 features, training data vs. validation week | 0.089 |
+| Features at 0.1 or more / at 0.25 or more | 5 / 2 |
+| PSI from sampling noise alone (one week split by customer): mean / largest | 0.0017 / 0.0096 |
+| PSI of the model score (last training week vs. validation week) | 0.0043 (stable) |
+
+Real shifts are 10 to 100 times the noise level, so the 0.1 cut-off is far above noise at this sample size.
+Mean PSI by feature group: article 0.153, customer 0.111, age-group popularity 0.018, customer x article history
+0.005, ALS / co-purchase scores 0.003, source ranks 0.0005. The features the ranker relies on most (history,
+scores, ranks, see the ablation) are the stable ones. The two major shifts are
+`a_days_since_first` (1.13) and `c_days_since_first` (0.78), followed by product type (0.19), department (0.14) and
+7-day article popularity (0.12). **The two largest are drift by construction, not behaviour:** they measure
+days since first purchase inside a fixed data window that starts on 2020-06-03, so they grow every week for everyone.
+A production alert should ignore such window-relative features or recompute them over a fixed horizon. The model
+score barely moves (mean -1.73 to -1.80, standard deviation 1.62 to 1.64) even though several features do.
+
+**How fast does it drift?** PSI of each earlier week against the validation week, mean over features (features
+at 0.1 or more in brackets): 1 week earlier 0.167 (4), 2 weeks 0.207 (6), 3 weeks 0.281 (8), 4 weeks 0.389 (11),
+5 weeks 0.383 (12), 6 weeks 0.419 (14), 7 weeks 0.487 (18). It rises with age, with one small dip at 5 weeks.
+
+**What does staleness actually cost?** PSI says the data moved, not that predictions got worse, so I measured it.
+I trained the headline model on the 4 weeks ending `s` weeks before the validation week (3 seeds each, same pipeline)
+and scored the validation week:
+
+| Model trained | Training weeks start | MAP@12 (3 seeds, mean) | recall@12 | NDCG@12 | Mean PSI vs. validation | Features >= 0.1 |
+|---|---|---|---|---|---|---|
+| Right before validation | 2020-08-12 | 0.0273 (0.0274 / 0.0267 / 0.0276) | 0.0536 | 0.0395 | 0.089 | 5 |
+| 1 week earlier | 2020-08-05 | 0.0276 (0.0273 / 0.0281 / 0.0273) | 0.0539 | 0.0399 | 0.144 | 7 |
+| 2 weeks earlier | 2020-07-29 | 0.0274 (0.0276 / 0.0271 / 0.0276) | 0.0558 | 0.0402 | 0.185 | 9 |
+| 3 weeks earlier | 2020-07-22 | 0.0261 (0.0265 / 0.0262 / 0.0257) | 0.0511 | 0.0377 | 0.354 | 11 |
+
+A model that is 1 or 2 weeks old is no worse than a fresh one (differences of 0.0001 to 0.0003 are within noise). At 3 weeks
+the model is about 4% worse in relative terms (MAP@12 0.0261 vs. 0.0273; recall@12 and NDCG@12 about 5% lower), and
+all three seeds are below every seed of the newer models. Read this with care:
+- **Noise.** The same fresh model trained with a different order of customers in the training file scored 0.0273 to
+  0.0276 (3-seed means), and the headline run, which used a different but equivalent data path, scored 0.0279. I could not
+  trace the 0.0003 to 0.0006 gap to a single cause, so treat differences below about 0.0006 as noise; this is larger
+  than the seed-to-seed spread quoted in the ranker section.
+- **Confounded.** Older models were trained on earlier weeks, which also have less purchase history behind their
+  features, so staleness and shorter history cannot be separated here.
+- **One validation week**, one 10% customer sample, three seeds.
+- **PSI is a weak predictor in this data.** Mean PSI crossed 0.1 at 1 week and performance did not drop until 3 weeks,
+  when mean PSI was 0.35 and 6 features were major.
+
+**When to retrain.** What the measurements support: weekly retraining is more than enough, since 1 to 2 weeks of age
+cost nothing measurable and 3 weeks cost about 4%. It is also cheap at this scale: building a week of candidates takes
+about 15 seconds and training the model about 20 seconds on the 10% sample (not measured on the full data, which is
+about 10 times larger). What I would add, as a proposal that these results neither prove nor disprove:
+1. Retrain on a schedule (weekly), regardless of drift.
+2. Retrain early if the model score PSI is above 0.1, or PSI is major for features in the history, score or rank
+   groups, since those are what the model uses and they were stable here.
+3. Watch `/stats`: investigate a fallback share well above its normal level.
+4. Once a week's purchases are known, compute that week's MAP@12 for the served model and compare it with the
+   previous weeks; a relative drop of more than about 5% (the size of the 3-week effect) triggers a retrain and a
+   look at the data. Labels arrive a week late, so this is the slowest check and the only one that measures quality.
+Alert thresholds for the first three are conventions and would need calibrating on a live system. Performance
+monitoring over time was not run here, because the weeks after validation are the untouched test week.
+
 ## Layout
 
 ```
@@ -658,6 +761,9 @@ src/hm_recsys/simulation.py experiment table, CUPED, power and peeking simulatio
 src/hm_recsys/artifacts.py build serving artifacts (train ranker, precompute candidate rows)
 src/hm_recsys/api.py       FastAPI service (runtime only: no training code)
 src/hm_recsys/tracking.py  MLflow helpers (optional)
+src/hm_recsys/monitoring.py PSI drift statistics and noise floor
+deploy/demo-artifacts/     synthetic demo model baked into the image (what Render serves)
+render.yaml                Render Blueprint (free web service, deploy after CI)
 src/hm_recsys/demo.py      small synthetic data for tests and the CI smoke test
 Dockerfile                 serving image (serve extra only; artifacts mounted)
 scripts/                   download, prepare, EDA, baselines
