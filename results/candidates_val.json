@@ -1,0 +1,110 @@
+{
+  "sample": {
+    "first_date": "2020-06-03",
+    "last_date": "2020-09-22",
+    "weeks": 16,
+    "customer_fraction": 0.1,
+    "rows": 514885,
+    "customers": 59640,
+    "articles": 29537,
+    "split": {
+      "val_start": "2020-09-09",
+      "test_start": "2020-09-16",
+      "test_end_exclusive": "2020-09-23"
+    },
+    "customers_with_age_rows": 59640
+  },
+  "eval_window": [
+    "2020-09-09",
+    "2020-09-16"
+  ],
+  "n_customers": 7256,
+  "candidates_per_source": 100,
+  "reachable_share_of_val_purchases": 0.8929110105580694,
+  "build_seconds": {
+    "buy again": 1.6,
+    "co-purchase": 3.2,
+    "ALS": 2.4,
+    "popularity": 0.1
+  },
+  "per_source": {
+    "buy again": {
+      "recall": 0.03780023222363933,
+      "any_hit": 0.07414553472987873,
+      "avg_size": 9.375137816979052,
+      "coverage": 0.7611631753031973
+    },
+    "co-purchase": {
+      "recall": 0.0158086921908978,
+      "any_hit": 0.03776185226019846,
+      "avg_size": 73.29451488423373,
+      "coverage": 0.7603362734288864
+    },
+    "ALS": {
+      "recall": 0.03800971049762155,
+      "any_hit": 0.09288864388092613,
+      "avg_size": 76.11631753031973,
+      "coverage": 0.7611631753031973
+    },
+    "popularity": {
+      "recall": 0.09406802114447367,
+      "any_hit": 0.22243660418963615,
+      "avg_size": 100.0,
+      "coverage": 1.0
+    }
+  },
+  "union": {
+    "all (no cap)": {
+      "recall": 0.1611432674838503,
+      "any_hit": 0.33131201764057333,
+      "avg_size": 248.98056780595368
+    },
+    "first 200": {
+      "recall": 0.10878655666812193,
+      "any_hit": 0.22712238147739802,
+      "avg_size": 176.10777287761852
+    }
+  },
+  "leave_one_out": {
+    "without buy again": {
+      "recall": 0.12874739389465492,
+      "any_hit": 0.28776185226019846,
+      "avg_size": 239.89319184123485
+    },
+    "without co-purchase": {
+      "recall": 0.15311328726302337,
+      "any_hit": 0.3189084895259096,
+      "avg_size": 178.20644983461963
+    },
+    "without ALS": {
+      "recall": 0.13963171878101172,
+      "any_hit": 0.29561742006615216,
+      "avg_size": 182.15573318632855
+    },
+    "without popularity": {
+      "recall": 0.08450612037475438,
+      "any_hit": 0.16923925027563397,
+      "avg_size": 156.34054575523706
+    }
+  },
+  "by_history": {
+    "returning": {
+      "n_customers": 5523,
+      "buy again recall@100": 0.04966114159238222,
+      "co-purchase recall@100": 0.020769123761932726,
+      "ALS recall@100": 0.04993634969595183,
+      "popularity recall@100": 0.093208482578681,
+      "union recall": 0.18133051543012405,
+      "union avg size": 295.7275031685678
+    },
+    "no history": {
+      "n_customers": 1733,
+      "buy again recall@100": 0.0,
+      "co-purchase recall@100": 0.0,
+      "ALS recall@100": 0.0,
+      "popularity recall@100": 0.0968073353388596,
+      "union recall": 0.0968073353388596,
+      "union avg size": 100.0
+    }
+  }
+}

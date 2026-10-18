@@ -5,7 +5,7 @@ Product recommendations for a fashion retailer on the public
 dataset (real transactions), plus an experimentation module on how to measure a recommender change
 online (A/B test analysis, power, variance reduction).
 
-Status: data, evaluation and baselines are done (Days 1-2). No learned models yet; this README only
+Status: data, evaluation, baselines and candidate generation are done (Days 1-3). No ranker yet; this README only
 reports numbers that were actually measured.
 
 ## Setup
@@ -29,6 +29,7 @@ Raw data is not committed (Kaggle competition licence and size). To get it:
    It also writes `data/processed/customers.parquet` (customer id and age) for the sampled customers.
 4. `python scripts/eda.py` computes the exploratory numbers into `results/eda.json`.
 5. `python scripts/baselines.py` evaluates the baselines on the validation week.
+6. `python scripts/candidates.py` measures candidate recall per source and for the union.
 
 Every result reported below states the sample it was computed on.
 
@@ -56,6 +57,11 @@ Every result reported below states the sample it was computed on.
 | Buy again order | Most recent distinct purchase first | Simplest recency rule. Frequency-based ordering was not tried. |
 | Fallback for buy again | Fill remaining slots from popularity, never repeat an item | Customers with fewer than 12 distinct past items still get 12 recommendations. |
 | Segments | Returning vs. no history (any purchase before the target week in the loaded window), and age group | Returning/no-history is a proxy: it cannot see purchases older than the window. |
+| Candidates per source | 100 | Large enough for recall@100 to be meaningful, small enough for a ranker to score. Not tuned. |
+| Co-purchase | Cosine similarity of articles over customers who bought both (whole window, not same basket); 50 nearest neighbours per article; seeds = customer's 10 latest purchases; already-bought articles excluded | The data has no baskets beyond same-day purchases, which are sparse in a 10% sample. Neighbour pruning keeps the matrix small. |
+| ALS | `implicit`, 64 factors, 15 iterations, regularisation 0.01, confidence 1 + log(1 + purchases), already-bought articles excluded, seed 0 | Defaults with a mild repeat-purchase weight. Buy again already covers owned articles, so ALS should add new ones. Factors 32/128 were checked on validation and made little difference. |
+| Union order | buy again, co-purchase, ALS, popularity; duplicates removed | Own history first. Order only matters if the union is cut. |
+| Candidate metric | Mean share of purchased articles found anywhere in the list, plus share of customers with at least one hit | The ranker sees the whole list, so what counts is whether the article is in it, not its position. |
 | Reference baseline | Buy again + global popularity | The age-group variant did not beat it, so the simpler one is kept (see Baselines). |
 
 ## Exploratory analysis
@@ -135,12 +141,71 @@ What the numbers say:
   popularity. "No history" means no purchase in the 16-week window; some may be older H&M customers.
   This segment is where candidate sources beyond the customer's own purchases (Day 3) should help.
 
+## Candidate generation (Day 3)
+
+The ranker will only re-order what the candidate sources propose, so here the question is recall: does
+the article a customer buys in the validation week appear in their list at all? Same validation
+week and sample as above (**7,256 customers, 10% customer sample, purchases before 2020-09-09**).
+Each source proposes up to 100 articles per customer. Produced by `python scripts/candidates.py`;
+raw numbers in `results/candidates_val.json`. "Recall" is the mean over customers of the share of
+their purchased articles that are in the list; "customers with a hit" is the share of customers
+for whom at least one purchased article is in the list.
+
+| Source | recall@100 | Customers with a hit | Customers served | Avg list size |
+|---|---|---|---|---|
+| Buy again (own past purchases) | 0.0378 | 7.4% | 76.1% | 9.4 |
+| Item-to-item co-purchase | 0.0158 | 3.8% | 76.0% | 73.3 |
+| ALS (`implicit`) | 0.0380 | 9.3% | 76.1% | 76.1 |
+| Popularity (last 7 days, top 100) | 0.0941 | 22.2% | 100% | 100 |
+
+Union of all four (buy again, co-purchase, ALS, popularity, duplicates removed):
+
+| Candidate set | Recall | Customers with a hit | Avg list size |
+|---|---|---|---|
+| All four sources, no cap | **0.1611** | 33.1% | 249 |
+| Same, first 200 in priority order | 0.1088 | 22.7% | 176 |
+| Without buy again | 0.1287 | 28.8% | 240 |
+| Without co-purchase | 0.1531 | 31.9% | 178 |
+| Without ALS | 0.1396 | 29.6% | 182 |
+| Without popularity | 0.0845 | 16.9% | 156 |
+
+By customer segment: returning customers (5,523) get union recall 0.1813 with about 296 candidates;
+customers with no history (1,733) get popularity only, recall 0.0968 with 100 candidates.
+
+What the numbers say:
+- **Popularity is the strongest single source at 100 candidates (0.094), more than twice ALS or buy
+  again.** Recent popularity is hard to beat, as in Day 2. It is also the only source that serves
+  new customers (24% of the evaluation population).
+- **Every source adds something to the union, but unevenly.** Removing popularity costs 0.077
+  recall, buy again 0.032, ALS 0.022 and co-purchase only 0.008. Co-purchase is the weakest and the
+  most redundant; it is kept for now because it still adds, but it is the first candidate to drop if
+  the ranker gets too slow.
+- **ALS is modest.** Its recall@100 equals buy again's, but it reaches more customers (9.3% vs 7.4%
+  with a hit) and it only proposes articles the customer has not bought. As a sanity check that
+  it is not broken or badly configured, I tried 32 / 64 / 128 factors on the validation week: recall@100
+  was 0.034 / 0.038 / 0.037 with already-bought articles filtered and 0.045 / 0.050 / 0.053 without the
+  filter. The number of factors barely matters. Allowing bought articles raises ALS recall, but
+  owned articles are already proposed by the buy-again source, so the filter stays (I did not measure the overlap). These variants were looked
+  at on the validation week; the setting was not changed because of them.
+- **The union reaches 16.1% recall with 249 candidates on average**, against 4.6% recall@12 for the
+  best Day 2 baseline. These are different measures (recall over ~250 candidates vs. over 12
+  recommendations), so this is headroom for the ranker, not a result: the ranker still has to pick
+  the right 12.
+- **Ceiling.** 89.3% of the validation-week purchases are of articles that were sold before the
+  cutoff in the window, so sources built from history cannot exceed that. Union recall of
+  16.1% is far below that, so most of the gap is purchases the sources do not propose, not
+  articles that were never sold.
+- **Cutting the union to 200 loses a lot (0.1611 to 0.1088)**, because popularity comes last in my
+  priority order and gets cut. The ranker should see the full union, or the merge needs a smarter
+  order. This has not been optimised.
+
 ## Layout
 
 ```
 src/hm_recsys/metrics.py   MAP@k, recall@k, NDCG@k, per-segment evaluation
 src/hm_recsys/data.py      DuckDB loading, subsampling, time split, leakage helper
 src/hm_recsys/baselines.py popularity, age-group popularity, buy again, fallback filling
+src/hm_recsys/candidates.py co-purchase, ALS, popularity and buy-again candidates, union, recall
 scripts/                   download, prepare, EDA, baselines
 tests/                     unit tests on synthetic fixtures
 ```
