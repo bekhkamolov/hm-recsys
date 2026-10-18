@@ -24,9 +24,9 @@
   "reachable_share_of_val_purchases": 0.8929110105580694,
   "build_seconds": {
     "buy again": 1.6,
-    "co-purchase": 3.3,
-    "ALS": 2.5,
-    "popularity": 0.2
+    "co-purchase": 3.2,
+    "ALS": 1.6,
+    "popularity": 0.1
   },
   "per_source": {
     "buy again": {

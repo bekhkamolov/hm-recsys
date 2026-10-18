@@ -35,6 +35,12 @@ Raw data is not committed (Kaggle competition licence and size). To get it:
 8. `python scripts/download_ab_data.py` and `python scripts/ab_cookie_cats.py` run the A/B test analysis
    on the public Cookie Cats data (needs only the Kaggle token, no H&M data).
 9. `python scripts/experiment_sim.py` runs the power, CUPED and peeking simulations on H&M behaviour.
+10. `python scripts/build_serving.py` builds the serving artifacts; `python scripts/track_results.py`
+    logs the saved results to MLflow (see "Serving, tracking and CI").
+
+Dependencies are split into extras: the base install is what the serving image needs; `.[train]` adds
+DuckDB, SciPy, `implicit` and scikit-learn; `.[serve]` adds FastAPI and uvicorn; `.[tracking]` adds
+MLflow; `.[dev]` installs all of them plus pytest and ruff.
 
 Every result reported below states the sample it was computed on.
 
@@ -79,6 +85,12 @@ Every result reported below states the sample it was computed on.
 | Treatment effect in simulations | Multiply each treated customer's outcome by (1 + uplift) | Simple and keeps the link between past and future spend that CUPED relies on. One possible model, not the only one. |
 | CUPED covariate | Pre-period spend, theta estimated on both arms pooled | Known before assignment, so it cannot be affected by the treatment. A second covariate (order count) added nothing. |
 | Sequential testing | 14 daily looks; Pocock and O'Brien-Fleming-style constants calibrated by simulating the null | Simulation-calibrated boundaries need no lookup tables for other numbers of looks; the Pocock constant for 5 looks matches the textbook value in a test. |
+| Serving split | Candidates and features precomputed in batch, ranker scored per request | Candidate generation is slow and needs full history; scoring about 290 rows is cheap. Cost: recommendations are as fresh as the last snapshot. |
+| Artifact format | LightGBM text model, parquet of candidate rows, JSON for popularity and metadata | Portable and inspectable; the service loads it with LightGBM, pandas and numpy only. |
+| Fallback | Global popularity of the snapshot's last 7 days | The best non-personalised list from Day 2; used for any customer not in the table. |
+| Snapshot date | 2020-09-09 (validation-week start) | Keeps the test week untouched for the final evaluation. |
+| Packaging | Base install = serving runtime; training, serving, tracking and dev in extras | A slim image and a faster build; a test checks the API imports no training code. |
+| Tracking backend | MLflow with SQLite (`mlflow-skinny` + SQLAlchemy + Alembic) | MLflow 3.x refuses its file store by default; skinny is enough to log and read runs. |
 | Reference baseline | Buy again + global popularity | The age-group variant did not beat it, so the simpler one is kept (see Baselines). |
 
 ## Exploratory analysis
@@ -546,6 +558,91 @@ replacement from 43,182 customers, which treats them as a sample from a larger p
 before the window are not in it, and non-buying visitors are not in this data at all. The
 100% coverage of outcomes at every look is optimistic, as noted above.
 
+## Serving, tracking and CI (Day 8)
+
+```
+ batch, offline (scripts/build_serving.py)                online (Docker, hm_recsys.api)
+ ┌───────────────────────────────────────────┐          ┌─────────────────────────────────────┐
+ │ transactions ─> candidates (4 sources)    │          │ GET /recommend?customer_id=...&k=12 │
+ │              ─> 33 features per pair      │  files   │   known customer: LightGBM scores   │
+ │ train LightGBM ranker (4 weeks)           ├─────────>│   its ~290 precomputed candidates   │
+ │ write: model.txt, candidates.parquet,     │ /app/    │   unknown customer: popularity      │
+ │        popularity.json, meta.json         │ artifacts│ GET /health: ready, snapshot date   │
+ └───────────────────────────────────────────┘          └─────────────────────────────────────┘
+```
+
+**Why split it this way.** Generating candidates (ALS, co-purchase) and computing features needs the
+full purchase history and is slow, so it is done in batch. Scoring about 290 candidates with a
+LightGBM model is cheap (a whole request takes about 1.5 ms, see below), so the ranker runs per request. The service therefore needs
+only the model and one table of precomputed rows, no purchase history, DuckDB or `implicit`. The cost
+is freshness: recommendations reflect the snapshot, not what the customer did an hour ago.
+
+**The endpoint.** `GET /recommend?customer_id=<id>&k=12` (k from 1 to 50) returns
+`{"customer_id", "source", "article_ids", "scores"}`. `source` is `"ranker"` for a customer in the
+precomputed table and `"popularity_fallback"` otherwise (unknown customer, or one without a table row),
+with the global most popular articles of the snapshot's last 7 days and `scores: null`. If a known customer
+has fewer than k candidates, the remaining slots are filled from popularity and have a `null` score. A missing or
+empty `customer_id` or a k outside 1-50 returns 422. `GET /health` returns `ready`, the snapshot date, the
+number of customers and features. Without artifacts the service starts, reports `ready: false` and answers
+503 on `/recommend`, so a missing model is visible and does not crash the container.
+
+**Run it.**
+```bash
+# with the H&M sample prepared (a few minutes; writes ./artifacts, about 16 MB for 2,000 customers)
+python scripts/build_serving.py --max-customers 2000
+ARTIFACT_DIR=artifacts uvicorn hm_recsys.api:create_app --factory
+curl "localhost:8000/recommend?customer_id=<an id from artifacts/meta.json>"
+
+# no data needed: synthetic demo artifacts
+python scripts/make_demo_artifacts.py --out artifacts-demo
+docker build -t hm-recsys .
+docker run -p 8000:8000 -v "$PWD/artifacts-demo:/app/artifacts:ro" hm-recsys
+```
+
+**The snapshot is as of 2020-09-09** (the start of the validation week): the model is trained on the 4
+weeks before it, and the candidate rows use purchases before it. The test week is not used, so the
+final test stays untouched. A production system would rebuild this weekly. The demo table holds 2,000 of
+the 59,640 sampled customers (a reproducible sample of customers with a purchase in the 8 weeks before the
+snapshot, chosen without looking at the following week); everyone else gets the popularity fallback.
+
+**Checked, on the real artifacts** (local, one process, a Python HTTP client on the same machine, so
+this is not a load test): the model in the artifact scores MAP@12 0.0279, recall@12 0.0556, NDCG@12 0.0407 on
+the full validation week, identical to seed 0 of the ranker table above, so the serving pipeline reproduces
+the research result. A ranked request takes a median 1.5 ms (p95 2.0 ms) with about 290 candidates per
+customer; the fallback about 0.9 ms. The feature matrix is 579,098 rows x 33 float32 columns, about 76 MB in memory.
+
+**Tests** (all on synthetic data, no network):
+- The served top 12 equals the offline model's top 12 for every served customer (parity).
+- Appending purchases from the prediction week does not change the precomputed candidates or the
+  popularity list (no leakage through the artifact path).
+- Known customer, unknown customer (fallback), response shape, k limits, 422s and 503 without artifacts.
+- The API module imports none of the training code.
+
+**Docker and CI.** The image (`python:3.11-slim`, non-root user, health check, listens on `$PORT` as
+Render sets it) is built with the `serve` extra only: no DuckDB, `implicit`, scikit-learn or MLflow (SciPy is still
+installed, because LightGBM depends on it); the model artifacts are mounted, not baked in. The GitHub Actions workflow has two jobs. `test`: ruff and pytest.
+`docker`: builds demo artifacts from synthetic data, builds the image, starts it, and checks `/health`, that
+it runs as non-root, that a known customer is ranked by the model, that an unknown customer gets the fallback,
+that a bad request gives 422, that a container without artifacts is up but not ready (503), and that it listens
+on `$PORT`. I could not run Docker on my machine, so what I verified locally is everything except the image
+itself: a clean environment with only the `serve` extra installed, the same `uvicorn` command, and the
+checks above. The image build is covered by the CI run.
+
+**MLflow tracking.** Every experiment script logs its run when it finishes, and `scripts/track_results.py`
+backfills existing `results/*.json`. A run has the sample description as parameters, every number as a metric
+(for example `full_model_seeds.0.map_12`) and the JSON as an artifact; `build_serving.py` also logs the
+model file and its validation metrics. Runs go to a local SQLite file (`mlflow.db`) because MLflow 3.x
+has put its file store into maintenance mode and refuses it by default; both `mlflow.db` and `mlruns/` are
+ignored by git. The project depends on the lighter `mlflow-skinny`, which is enough to log and to read runs back
+(the tests do). To browse them in the web UI (`mlflow ui --backend-store-uri sqlite:///mlflow.db`) you
+need the full `mlflow` package; I have not installed or tried it here. Without MLflow installed
+the scripts still run and print a note.
+
+**Limits.** The precomputed table covers a sample of customers, not everyone. The snapshot is one fixed
+date, with no scheduled rebuild yet. Features are not recomputed per request, so a purchase made after the
+snapshot does not change a customer's list. The latency figure is local and single-process. There is no
+authentication or rate limiting on the endpoint. Monitoring and deployment are Day 9.
+
 ## Layout
 
 ```
@@ -557,6 +654,11 @@ src/hm_recsys/features.py  candidate rows and the 33 ranking features, labels, t
 src/hm_recsys/ranker.py    LightGBM LambdaRank training, top-k prediction, importance
 src/hm_recsys/experiments.py SRM, proportion tests, bootstrap, sample size and power
 src/hm_recsys/simulation.py experiment table, CUPED, power and peeking simulations
+src/hm_recsys/artifacts.py build serving artifacts (train ranker, precompute candidate rows)
+src/hm_recsys/api.py       FastAPI service (runtime only: no training code)
+src/hm_recsys/tracking.py  MLflow helpers (optional)
+src/hm_recsys/demo.py      small synthetic data for tests and the CI smoke test
+Dockerfile                 serving image (serve extra only; artifacts mounted)
 scripts/                   download, prepare, EDA, baselines
 tests/                     unit tests on synthetic fixtures
 ```

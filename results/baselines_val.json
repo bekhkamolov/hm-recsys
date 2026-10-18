@@ -12,7 +12,8 @@
       "test_start": "2020-09-16",
       "test_end_exclusive": "2020-09-23"
     },
-    "customers_with_age_rows": 59640
+    "customers_with_age_rows": 59640,
+    "articles_rows": 105542
   },
   "eval_window": [
     "2020-09-09",
