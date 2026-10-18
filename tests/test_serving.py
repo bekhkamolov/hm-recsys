@@ -96,6 +96,30 @@ def test_unknown_customer_gets_the_popularity_fallback(client, world):
     assert body["article_ids"] == popularity(tx, CUTOFF, 12)
 
 
+def test_stats_count_requests_by_source_and_hold_no_customer_ids(built, world):
+    with TestClient(create_app(built[0])) as c:
+        empty = c.get("/stats").json()
+        assert empty["requests"] == 0 and empty["fallback_share"] is None
+        assert empty["scoring_ms_mean"] is None
+        for customer in world[3][:3]:
+            c.get("/recommend", params={"customer_id": customer})
+        c.get("/recommend", params={"customer_id": "nobody"})
+        c.get("/recommend")  # invalid request: not counted
+        s = c.get("/stats").json()
+        assert (s["requests"], s["ranker_requests"], s["fallback_requests"]) == (4, 3, 1)
+        assert s["fallback_share"] == 0.25
+        assert 0 < s["scoring_ms_mean"] <= s["scoring_ms_p95"]
+        assert set(s) == {
+            "requests",
+            "ranker_requests",
+            "fallback_requests",
+            "fallback_share",
+            "scoring_ms_mean",
+            "scoring_ms_p95",
+            "window",
+        }
+
+
 def test_invalid_requests_are_rejected(client):
     assert client.get("/recommend").status_code == 422
     assert client.get("/recommend", params={"customer_id": ""}).status_code == 422

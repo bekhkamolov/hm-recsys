@@ -6,12 +6,16 @@ Run with: uvicorn hm_recsys.api:create_app --factory   (artifact folder from $AR
 
   GET /recommend?customer_id=...&k=12   top-k article ids for a customer
   GET /health                           readiness and what snapshot is loaded
+  GET /stats                            fallback share and scoring time since start-up
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
+import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -41,6 +45,47 @@ class Health(BaseModel):
     customers: int | None = None
     n_features: int | None = None
     built_utc: str | None = None
+
+
+class StatsOut(BaseModel):
+    requests: int
+    ranker_requests: int
+    fallback_requests: int
+    fallback_share: float | None  # None before the first request
+    scoring_ms_mean: float | None  # time inside the model, last `window` requests
+    scoring_ms_p95: float | None
+    window: int
+
+
+class RequestStats:
+    """In-process counters since start-up plus a rolling window of scoring times. No customer ids
+    are kept. With several workers each process has its own counters."""
+
+    def __init__(self, window: int = 1000):
+        self.window = window
+        self._lock = threading.Lock()
+        self._times: deque[float] = deque(maxlen=window)
+        self._counts = {"ranker": 0, "popularity_fallback": 0}
+
+    def record(self, source: str, seconds: float) -> None:
+        with self._lock:
+            self._counts[source] += 1
+            self._times.append(seconds * 1000)
+
+    def snapshot(self) -> StatsOut:
+        with self._lock:
+            times = sorted(self._times)
+            ranker, fallback = self._counts["ranker"], self._counts["popularity_fallback"]
+        total = ranker + fallback
+        return StatsOut(
+            requests=total,
+            ranker_requests=ranker,
+            fallback_requests=fallback,
+            fallback_share=fallback / total if total else None,
+            scoring_ms_mean=sum(times) / len(times) if times else None,
+            scoring_ms_p95=times[min(len(times) - 1, int(0.95 * len(times)))] if times else None,
+            window=self.window,
+        )
 
 
 class Store:
@@ -90,6 +135,7 @@ def create_app(artifact_dir: str | Path | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        app.state.stats = RequestStats()
         try:
             app.state.store = Store(directory)
         except (OSError, ValueError, KeyError, lgb.basic.LightGBMError):
@@ -122,6 +168,14 @@ def create_app(artifact_dir: str | Path | None = None) -> FastAPI:
         store: Store | None = request.app.state.store
         if store is None:
             raise HTTPException(status_code=503, detail="model artifacts are not loaded")
-        return store.recommend(customer_id, k)
+        start = time.perf_counter()
+        result = store.recommend(customer_id, k)
+        request.app.state.stats.record(result.source, time.perf_counter() - start)
+        return result
+
+    @app.get("/stats", response_model=StatsOut)
+    def stats(request: Request) -> StatsOut:
+        """Operational numbers for monitoring: how often the fallback is used and scoring time."""
+        return request.app.state.stats.snapshot()
 
     return app
