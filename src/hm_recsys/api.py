@@ -17,13 +17,16 @@ import threading
 import time
 from collections import deque
 from contextlib import asynccontextmanager
+from html import escape
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 SUPPORTED_FORMAT = 1
@@ -88,6 +91,69 @@ class RequestStats:
         )
 
 
+_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hm-recsys</title>
+<style>
+  :root {{ --bg:#fff; --fg:#1a1a1a; --muted:#5b6470; --line:#d9dde3; --link:#0b5fff; }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{ --bg:#14171c; --fg:#e8eaed; --muted:#a0a8b3; --line:#2b313a; --link:#7aa7ff; }}
+  }}
+  body {{ margin:0; background:var(--bg); color:var(--fg);
+         font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif; }}
+  main {{ max-width:42rem; margin:0 auto; padding:2rem 16px 3rem; }}
+  h1 {{ font-size:1.6rem; margin:0 0 .25rem; }}
+  p.sub {{ color:var(--muted); margin:0 0 1.5rem; }}
+  a {{ color:var(--link); }}
+  ul {{ padding-left:1.2rem; }} li {{ margin:.35rem 0; }}
+  .box {{ border:1px solid var(--line); border-radius:8px; padding:.75rem 1rem; margin:1.25rem 0; }}
+  .box dt {{ color:var(--muted); float:left; clear:left; width:9rem; }}
+  .box dd {{ margin:0 0 .25rem 9rem; }}
+  code {{ font-family:ui-monospace,Consolas,monospace; font-size:.92em; overflow-wrap:anywhere; }}
+</style></head>
+<body><main>
+<h1>hm-recsys</h1>
+<p class="sub">Product recommendations for a fashion retailer: precomputed candidates ranked by a
+LightGBM model, with a popularity fallback for unknown customers.</p>
+{model}
+<h2>Try it</h2>
+<ul>
+  <li><a href="/recommend?customer_id={example}">/recommend?customer_id={example}</a>
+      &ndash; top 12 for a known customer (ranked by the model)</li>
+  <li><a href="/recommend?customer_id=someone-new">/recommend?customer_id=someone-new</a>
+      &ndash; unknown customer, popularity fallback</li>
+  <li><a href="/docs">/docs</a> &ndash; interactive API documentation</li>
+  <li><a href="/health">/health</a> and <a href="/stats">/stats</a> &ndash; readiness and
+      request statistics</li>
+</ul>
+<p class="sub">Add <code>&amp;k=5</code> to ask for fewer items (1 to 50).</p>
+</main></body></html>
+"""
+
+
+def landing_page(store: Store | None) -> str:
+    """Small HTML page for the root URL. Everything shown from the model is escaped."""
+    if store is None:
+        model = (
+            '<div class="box">Model artifacts are not loaded, '
+            "so recommendations are unavailable.</div>"
+        )
+        example = "c0001"
+    else:
+        m = store.meta
+        rows = [
+            ("Snapshot date", m["cutoff"]),
+            ("Data", m.get("data", "not stated")),
+            ("Customers in table", f"{m['n_customers']:,}"),
+            ("Features", str(m["n_features"])),
+        ]
+        body = "".join(f"<dt>{escape(k)}</dt><dd>{escape(str(v))}</dd>" for k, v in rows)
+        model = f'<dl class="box">{body}</dl>'
+        example = (m.get("example_customer_ids") or ["c0001"])[0]
+    return _PAGE.format(model=model, example=escape(quote(example), quote=True))
+
+
 class Store:
     """Loaded artifacts. Candidate rows are kept as one float32 matrix with per-customer slices."""
 
@@ -143,6 +209,10 @@ def create_app(artifact_dir: str | Path | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="hm-recsys", version="0.1.0", lifespan=lifespan)
+
+    @app.get("/", include_in_schema=False, response_class=HTMLResponse)
+    def index(request: Request) -> str:
+        return landing_page(request.app.state.store)
 
     @app.get("/health", response_model=Health)
     def health(request: Request) -> Health:

@@ -120,6 +120,45 @@ def test_stats_count_requests_by_source_and_hold_no_customer_ids(built, world):
         }
 
 
+def test_root_page_describes_the_loaded_model_and_links_to_endpoints(client, built):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    page = response.text
+    example = json.loads((built[0] / "meta.json").read_text())["example_customer_ids"][0]
+    assert f"/recommend?customer_id={example}" in page
+    assert "/docs" in page and "/health" in page and "/stats" in page
+    assert "2020-08-31" in page  # snapshot date from the model's metadata
+    assert "/" not in client.get("/openapi.json").json()["paths"]  # not part of the API schema
+
+
+def test_root_page_escapes_metadata_and_works_without_artifacts(tmp_path):
+    (tmp_path / "meta.json").write_text(
+        json.dumps(
+            {
+                "format_version": 1,
+                "cutoff": "2020-01-01",
+                "data": "<script>alert(1)</script>",
+                "n_customers": 3,
+                "n_features": 33,
+                "example_customer_ids": ['a"b<c'],
+                "features": [],
+            }
+        )
+    )
+    from hm_recsys.api import Store, landing_page
+
+    # a Store cannot be built from this partial folder, so render the page from a stand-in
+    stand_in = Store.__new__(Store)
+    stand_in.meta = json.loads((tmp_path / "meta.json").read_text())
+    page = landing_page(stand_in)
+    assert "<script>" not in page and "&lt;script&gt;" in page
+    assert 'a"b' not in page.split("recommend?customer_id=")[1].split('"')[0]
+    with TestClient(create_app(tmp_path / "missing")) as c:
+        empty = c.get("/")
+        assert empty.status_code == 200 and "not loaded" in empty.text
+
+
 def test_invalid_requests_are_rejected(client):
     assert client.get("/recommend").status_code == 422
     assert client.get("/recommend", params={"customer_id": ""}).status_code == 422

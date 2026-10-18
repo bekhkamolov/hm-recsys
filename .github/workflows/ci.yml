@@ -70,6 +70,13 @@ jobs:
           assert (s['requests'], s['ranker_requests'], s['fallback_requests']) == (2, 1, 1), s
           assert s['fallback_share'] == 0.5 and s['scoring_ms_mean'] > 0, s
           "
+      - name: Root page is served and links to the endpoints
+        run: |
+          code=$(curl -s -o root.html -w '%{http_code}' http://localhost:8000/)
+          echo "HTTP $code"
+          test "$code" = "200"
+          grep -q "/recommend?customer_id=$CUSTOMER" root.html
+          grep -q 'href="/docs"' root.html
       - name: Invalid request returns 422
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8000/recommend")
