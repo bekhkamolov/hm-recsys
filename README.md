@@ -5,7 +5,8 @@ Product recommendations for a fashion retailer on the public
 dataset (real transactions), plus an experimentation module on how to measure a recommender change
 online (A/B test analysis, power, variance reduction).
 
-Status: data, evaluation, baselines, candidate generation and the ranker are done (Days 1-5), as are the real A/B test analysis (Day 6) and the experiment design simulations (Day 7); this README only
+Status: data, evaluation, baselines, candidate generation and the ranker are done (Days 1-5), as are the real A/B test analysis (Day 6), the experiment design simulations (Day 7), and the serving API,
+Docker image, MLflow tracking and CI (Day 8); this README only
 reports numbers that were actually measured.
 
 ## Setup
