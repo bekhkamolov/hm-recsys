@@ -5,8 +5,8 @@ Product recommendations for a fashion retailer on the public
 dataset (real transactions), plus an experimentation module on how to measure a recommender change
 online (A/B test analysis, power, variance reduction).
 
-Status: data loading, splitting and evaluation metrics are in place. No model results yet; this
-README only reports numbers that were actually measured.
+Status: data loading, splitting, evaluation metrics and EDA are done (Day 1). No model results yet;
+this README only reports numbers that were actually measured.
 
 ## Setup
 
@@ -21,7 +21,7 @@ ruff check . && ruff format --check .
 Raw data is not committed (Kaggle competition licence and size). To get it:
 
 1. Accept the competition rules on Kaggle and configure the Kaggle CLI token
-   (`~/.kaggle/kaggle.json`, never committed).
+   (`~/.kaggle/access_token` or `~/.kaggle/kaggle.json`, never committed).
 2. `python scripts/download_data.py` fetches `transactions_train.csv`, `articles.csv`, `customers.csv`
    into `data/raw/`.
 3. `python scripts/prepare_data.py --weeks 16 --customer-fraction 0.1` writes the subsample to
@@ -51,7 +51,32 @@ Every result reported below states the sample it was computed on.
 
 ## Exploratory analysis
 
-To be filled with the output of `scripts/eda.py` once the data is downloaded.
+Computed by `scripts/eda.py` on the **last 16 weeks (2020-06-03 to 2020-09-22), 10% hashed customer
+sample: 514,885 purchase rows, 59,640 customers, 29,537 distinct articles.** Split on this sample:
+validation 2020-09-09 to 2020-09-15, test 2020-09-16 to 2020-09-22.
+
+| Quantity | Value |
+|---|---|
+| Purchases per customer (mean) | 8.6 |
+| Purchases per customer (25 / 50 / 75 / 90th percentile) | 3 / 5 / 11 / 19 |
+| Repeat-purchase rate (share of purchases where the customer bought that article earlier in the window) | 12.0% |
+| Share of purchases going to the top 1% of articles | 13.9% |
+| Share of purchases going to the top 10% of articles | 54.9% |
+
+What this means for the models:
+- **Heavy-tailed activity.** The median customer made 5 purchases in 16 weeks and the 90th percentile 19,
+  so many customers have little history. Segment results (new vs. returning) will matter.
+- **Repeat purchases are a real signal, but a minority.** 12% of purchases repeat an article already
+  bought in the window. This is a lower bound, because the window is only 16 weeks. "Buy again" is
+  therefore worth testing as a baseline, but it cannot cover most purchases.
+- **Strong popularity skew.** 10% of articles carry 55% of purchases, so popularity baselines will be
+  hard to beat. Every later model is compared against them.
+- **Seasonality / non-stationarity.** Weekly purchases are not flat: 22.9k in the first (partial) week, a
+  peak of 49.0k and 56.4k in the weeks of 15 and 22 June, then about 25-31k per week. The June peak
+  is probably a sale period, but that has not been verified in the data. It means "popular last week"
+  changes over time, which is why popularity is computed on the most recent week only. The first
+  and last weeks in the table are partial (the window starts on a Wednesday and ends on a
+  Tuesday), so their counts are lower for that reason.
 
 ## Layout
 
