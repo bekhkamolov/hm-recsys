@@ -5,8 +5,8 @@ Product recommendations for a fashion retailer on the public
 dataset (real transactions), plus an experimentation module on how to measure a recommender change
 online (A/B test analysis, power, variance reduction).
 
-Status: data loading, splitting, evaluation metrics and EDA are done (Day 1). No model results yet;
-this README only reports numbers that were actually measured.
+Status: data, evaluation and baselines are done (Days 1-2). No learned models yet; this README only
+reports numbers that were actually measured.
 
 ## Setup
 
@@ -26,7 +26,9 @@ Raw data is not committed (Kaggle competition licence and size). To get it:
    into `data/raw/`.
 3. `python scripts/prepare_data.py --weeks 16 --customer-fraction 0.1` writes the subsample to
    `data/processed/transactions.parquet` and the sample description to `data/processed/sample.json`.
+   It also writes `data/processed/customers.parquet` (customer id and age) for the sampled customers.
 4. `python scripts/eda.py` computes the exploratory numbers into `results/eda.json`.
+5. `python scripts/baselines.py` evaluates the baselines on the validation week.
 
 Every result reported below states the sample it was computed on.
 
@@ -48,6 +50,13 @@ Every result reported below states the sample it was computed on.
 | AP@12 denominator | `min(#relevant, 12)` | Same as the competition, so numbers are comparable to the leaderboard definition. |
 | Missing prediction | Scores 0 | A customer we cannot serve is a failure, not something to skip. |
 | Storage | DuckDB reads the 31M-row CSV, writes parquet | Handles the CSV without loading it into pandas. |
+| Popularity window | Last 7 days before the cutoff | Purchases are strongly non-stationary (see weekly counts), so recent popularity is a better guess than all-time popularity. Not tuned. |
+| Popularity ties | Broken by lower article id | Deterministic results. |
+| Age groups | <25, 25-34, 35-44, 45-54, 55+, unknown | Coarse buckets so each has enough customers in a 10% sample. A group with fewer than 12 articles is padded from global popularity. |
+| Buy again order | Most recent distinct purchase first | Simplest recency rule. Frequency-based ordering was not tried. |
+| Fallback for buy again | Fill remaining slots from popularity, never repeat an item | Customers with fewer than 12 distinct past items still get 12 recommendations. |
+| Segments | Returning vs. no history (any purchase before the target week in the loaded window), and age group | Returning/no-history is a proxy: it cannot see purchases older than the window. |
+| Reference baseline | Buy again + global popularity | The age-group variant did not beat it, so the simpler one is kept (see Baselines). |
 
 ## Exploratory analysis
 
@@ -78,11 +87,60 @@ What this means for the models:
   and last weeks in the table are partial (the window starts on a Wednesday and ends on a
   Tuesday), so their counts are lower for that reason.
 
+## Baselines (Day 2)
+
+Validation week 2020-09-09 to 2020-09-15, same 10% customer sample as above, **7,256 customers**
+(everyone in the sample who bought something that week). All models predict 12 articles from
+purchases before 2020-09-09 only. Produced by `python scripts/baselines.py`; raw numbers in
+`results/baselines_val.json`. The test week is not used.
+
+| Model | MAP@12 | recall@12 | NDCG@12 |
+|---|---|---|---|
+| Global popularity (last 7 days) | 0.0053 | 0.0198 | 0.0113 |
+| Popularity by age group (last 7 days) | 0.0055 | 0.0175 | 0.0106 |
+| Buy again (own purchases, then global popularity) | 0.0233 | 0.0458 | 0.0339 |
+| Buy again + age-group popularity | 0.0235 | 0.0447 | 0.0336 |
+| Buy again, max 6 own items + age-group popularity | 0.0233 | 0.0436 | 0.0332 |
+
+MAP@12 by segment (same models, number of customers in brackets):
+
+| Model | Returning (5,523) | No history (1,733) |
+|---|---|---|
+| Global popularity | 0.0051 | 0.0062 |
+| Popularity by age group | 0.0050 | 0.0068 |
+| Buy again + global popularity | 0.0287 | 0.0062 |
+| Buy again + age-group popularity | 0.0288 | 0.0068 |
+
+Age-group MAP@12 for each model is in `results/baselines_val.json`; the groups have between 750 and
+2,269 customers (29 with unknown age), so differences between them are noisy.
+
+What the numbers say:
+- **"Buy again" is the first real step.** It lifts MAP@12 from 0.0053 to 0.0233, about 4.4x, and
+  recall@12 from 0.020 to 0.046. The whole gain is on returning customers (0.0051 to 0.0287); for customers
+  without history it falls back to popularity and is identical to it.
+- **Age-group popularity did not beat global popularity.** MAP@12 is 0.0055 vs 0.0053, which is a tie
+  at this sample size, while recall@12 and NDCG@12 are lower. It helps the under-25s (0.0084
+  vs 0.0069) and the 55+ (0.0064 vs 0.0043) and hurts the 25-54 groups, so the overall tie hides
+  opposite effects in small groups. No confidence interval has been computed, so treat any
+  MAP difference below about 0.001 as noise.
+- **Because of that, the reference baseline is "buy again + global popularity".** Replacing the
+  fallback with age-group popularity gives 0.0235 vs 0.0233 MAP@12 but lower recall@12 and NDCG@12,
+  so it is not an improvement and the simpler version is kept as the bar the ranker must beat.
+- **Capping own items at 6 made things worse** (0.0233 vs 0.0235 MAP, recall@12 0.0436 vs 0.0447), so
+  the uncapped version is used. Only the value 6 was tried, so this does not rule out other splits.
+- **Absolute numbers are low and not comparable to the Kaggle leaderboard.** This is a 10% customer
+  sample, one validation week, and the population is only customers who bought that week. The
+  comparison between rows is what matters.
+- **No-history customers are 24% of the evaluation population** (1,733 of 7,256) and get only
+  popularity. "No history" means no purchase in the 16-week window; some may be older H&M customers.
+  This segment is where candidate sources beyond the customer's own purchases (Day 3) should help.
+
 ## Layout
 
 ```
-src/hm_recsys/metrics.py   MAP@k, recall@k, NDCG@k
+src/hm_recsys/metrics.py   MAP@k, recall@k, NDCG@k, per-segment evaluation
 src/hm_recsys/data.py      DuckDB loading, subsampling, time split, leakage helper
-scripts/                   download, prepare, EDA
+src/hm_recsys/baselines.py popularity, age-group popularity, buy again, fallback filling
+scripts/                   download, prepare, EDA, baselines
 tests/                     unit tests on synthetic fixtures
 ```
