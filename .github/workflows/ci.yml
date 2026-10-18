@@ -12,3 +12,71 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest -q
+
+  docker:
+    # Builds the serving image and checks that the container starts, answers /health, runs as
+    # non-root, ranks a known customer, falls back to popularity for an unknown one, and listens
+    # on $PORT (as set by Render). Model artifacts are built from synthetic data: no H&M data in CI.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build demo artifacts (synthetic data)
+        run: |
+          pip install -e ".[train]"
+          python scripts/make_demo_artifacts.py --out artifacts-demo
+          echo "CUSTOMER=$(python -c "import json; print(json.load(open('artifacts-demo/meta.json'))['example_customer_ids'][0])")" >> "$GITHUB_ENV"
+      - run: docker build -t hm-recsys .
+      - run: docker run -d --name app -p 8000:8000 -v "$PWD/artifacts-demo:/app/artifacts:ro" hm-recsys
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health > health.json; then break; fi
+            sleep 1
+          done
+          cat health.json
+          python3 -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok' and h['ready'] is True, h"
+      - run: test "$(docker exec app whoami)" = "app"
+      - name: Known customer is ranked by the model
+        run: |
+          curl -fsS "http://localhost:8000/recommend?customer_id=$CUSTOMER&k=12" > known.json
+          cat known.json
+          python3 -c "
+          import json
+          r = json.load(open('known.json'))
+          assert r['source'] == 'ranker', r
+          assert len(r['article_ids']) == 12 == len(set(r['article_ids'])), r
+          scored = [s for s in r['scores'] if s is not None]  # filled-in slots have no score
+          assert scored and scored == sorted(scored, reverse=True), r
+          "
+      - name: Unknown customer gets the popularity fallback
+        run: |
+          curl -fsS "http://localhost:8000/recommend?customer_id=does-not-exist" > unknown.json
+          cat unknown.json
+          python3 -c "
+          import json
+          r = json.load(open('unknown.json'))
+          assert r['source'] == 'popularity_fallback' and len(r['article_ids']) == 12, r
+          "
+      - name: Invalid request returns 422
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8000/recommend")
+          echo "HTTP $code"
+          test "$code" = "422"
+      - name: Container without artifacts is up but not ready, and /recommend returns 503
+        run: |
+          docker run -d --name bare -p 9100:8000 hm-recsys
+          for i in $(seq 1 30); do curl -fsS http://localhost:9100/health > bare.json && break; sleep 1; done
+          python3 -c "import json; h = json.load(open('bare.json')); assert h['ready'] is False, h"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:9100/recommend?customer_id=x")
+          echo "HTTP $code"
+          test "$code" = "503"
+      - name: Container listens on $PORT (as set by Render)
+        run: |
+          docker run -d --name app2 -e PORT=9000 -p 9000:9000 -v "$PWD/artifacts-demo:/app/artifacts:ro" hm-recsys
+          for i in $(seq 1 30); do curl -fsS http://localhost:9000/health && exit 0; sleep 1; done
+          docker logs app2; exit 1
+      - if: always()
+        run: docker logs app

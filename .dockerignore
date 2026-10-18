@@ -1,0 +1,16 @@
+.env
+.venv/
+.git/
+.github/
+.pytest_cache/
+.ruff_cache/
+**/__pycache__/
+*.egg-info/
+data/
+results/
+tests/
+scripts/
+mlruns/
+mlflow.db
+artifacts-demo/
+CLAUDE.md
