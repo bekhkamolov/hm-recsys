@@ -2,13 +2,28 @@
 
 Product recommendations for a fashion retailer on the public
 [H&M Personalized Fashion Recommendations](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations)
-dataset (real transactions), plus an experimentation module on how to measure a recommender change
-online (A/B test analysis, power, variance reduction).
+dataset (real transactions), plus a module on how to measure a recommender change online.
 
-Status: data, evaluation, baselines, candidate generation and the ranker are done (Days 1-5), as are the real A/B test analysis (Day 6), the experiment design simulations (Day 7), and the serving API,
-Docker image, MLflow tracking and CI (Day 8). Day 9: drift monitoring and the retraining analysis are done, and
-the service is deployed on Render (`render.yaml`). This README only
-reports numbers that were actually measured.
+**What is here.** A recommender (four candidate sources, then a LightGBM LambdaRank ranker with 33
+features) and the simple baselines it has to beat; evaluation with strict time-based splits and
+leakage tests; a real A/B-test analysis; simulations on H&M purchase behaviour for sample size, CUPED and
+peeking; a FastAPI service in Docker with a popularity fallback, MLflow tracking, drift monitoring and CI; and
+a deployed demo. This README only reports numbers that were actually measured, including the bad ones.
+
+**Headline result.** On the held-out test week (2020-09-16 to 2020-09-22), evaluated once, for the 6,972 customers
+in a 10% customer sample who bought that week, predicting 12 articles each:
+
+| Model | MAP@12 | recall@12 | NDCG@12 |
+|---|---|---|---|
+| Popularity (last 7 days) | 0.0112 | 0.0298 | 0.0191 |
+| Buy again + popularity | 0.0267 | 0.0561 | 0.0387 |
+| **LightGBM ranker** (mean of 3 seeds) | **0.0306** | **0.0635** | **0.0446** |
+
+The ranker is 14.9% better than "buy again" on MAP@12 (95% bootstrap interval for the difference in MAP@12,
+seed 0: +0.0038, from +0.0019 to +0.0057), which is smaller than its 19.6% gain on the validation week. It is
+clearly better for customers with purchase history and **worse than plain popularity for customers with none**
+(see "Final test-week evaluation"). Absolute values are low and not comparable to the Kaggle leaderboard: this is a
+10% sample, and the candidates reach only 17% of the purchased articles, which caps any ranker built on them.
 
 **Live demo: https://hm-recsys.onrender.com** (a free instance that sleeps when idle, so the first request can take a
 while; it serves a small synthetic demo model, not the H&M model, see "Deployment").
@@ -16,7 +31,94 @@ Try [`/recommend?customer_id=c0001`](https://hm-recsys.onrender.com/recommend?cu
 an unknown id for the popularity fallback, [`/health`](https://hm-recsys.onrender.com/health),
 [`/stats`](https://hm-recsys.onrender.com/stats) and the interactive [`/docs`](https://hm-recsys.onrender.com/docs).
 
-## Setup
+Contents: results at a glance, architecture, trade-offs, limitations, setup and how to reproduce, data, evaluation
+protocol, design decisions, then one section per stage (exploratory analysis, baselines, candidate generation, ranker,
+real A/B test, experiment design, serving, deployment and monitoring), the final test-week evaluation, and the code layout.
+
+## Results at a glance
+
+| Question | Answer | Where |
+|---|---|---|
+| Does a ranker beat simple baselines? | Yes. Test week: MAP@12 0.0306 vs 0.0267 (buy again) vs 0.0112 (popularity). Validation week: 0.0279 vs 0.0233 vs 0.0053. | Final test-week evaluation, Ranker |
+| Does it help every customer? | No. For customers with no purchase history in the window it is worse than popularity on the test week (MAP@12 0.0068 vs 0.0113). | Final test-week evaluation |
+| How much of the purchases can the candidates reach? | 14.6% (validation) and 16.9% (test) of purchased articles are in the candidate set, so this caps any ranker. | Candidate generation |
+| What in the ranker matters? | Customer x article history most (removing it costs 0.0021 MAP@12). No single feature group beats the baseline alone; the gain comes from combining. | Ranker |
+| Does more training data help? | Yes up to a point: MAP@12 0.0246 (1 week), 0.0257 (2), 0.0279 (4), 0.0281 (6). | Ranker |
+| Real A/B test (Cookie Cats) | Moving the gate from level 30 to 40 lowered 7-day retention by 0.82 pp (95% CI 0.31 to 1.33 pp, p = 0.0016); 1-day retention not significant. A sample-ratio warning (p = 0.0086) is unexplained. | Experimentation A |
+| What can an H&M test detect? | With every eligible customer split 50/50 for 14 days: 1.7% relative uplift in purchase rate, 2.8% in revenue per user. CUPED saves about 10% of users. | Experimentation B |
+| What does peeking cost? | 14 daily looks at p < 0.05 turn a 5% false-positive rate into 21.5%; an O'Brien-Fleming-style boundary holds it at 4.9%. | Experimentation B |
+| How fast is serving? | Median 1.5 ms per request locally (p95 2.0 ms), with the model scoring about 290 candidates per customer. | Serving |
+| When to retrain? | Weekly is more than enough: a model 1 to 2 weeks old is no worse, 3 weeks old is about 4% worse (one validation week). | Deployment and monitoring |
+
+## Architecture
+
+```
+ H&M CSV (31M rows) --DuckDB--> 16 weeks, 10% of customers --> parquet     (raw data never committed)
+                                          |
+        for each prediction week T, using only purchases before T (a test checks this)
+                                          v
+   candidates, up to 100 each:  buy again | co-purchase | ALS | popularity   (about 290 per customer)
+                                          v
+   33 features per (customer, article): customer, article, customer x article history,
+                                        age-group popularity, ALS / co-purchase scores, source ranks
+                                          v
+   LightGBM LambdaRank, trained on the 4 weeks before T  -->  top 12 per customer
+        |                                                        |
+        | batch artifacts (model + candidate rows)               +--> offline metrics: MAP@12, recall, NDCG
+        v                                                             validation week, test week (once)
+   FastAPI /recommend, /health, /stats  (Docker, Render, CI smoke test)
+     known customer -> LightGBM scores precomputed candidates; unknown -> popularity fallback
+        |
+        +--> MLflow runs, PSI drift and staleness checks, /stats (fallback share, scoring time)
+
+ Experimentation (separate from the model): Cookie Cats A/B analysis; simulations on H&M behaviour
+ for power, CUPED and peeking; a plan for A/B testing this recommender.
+```
+
+## Trade-offs: accuracy, complexity and latency
+
+| Approach | Test MAP@12 | What it needs | Cost to run |
+|---|---|---|---|
+| Popularity | 0.0112 | One list per week | Almost nothing (the fallback path takes about 0.9 ms); no personalisation |
+| Buy again + popularity | 0.0267 | A customer's own purchase history | Almost nothing |
+| LightGBM ranker | 0.0306 (+14.9% over buy again) | Four candidate sources, 33 features, 7.4M training rows, a weekly batch rebuild, an artifact table, drift monitoring | About 1.5 ms per request locally (about 290 candidates per customer) plus a batch pipeline |
+
+- **Accuracy vs complexity.** The ranker adds about 0.004 MAP@12 over "buy again" on the test week and brings a
+  whole pipeline with it. Whether that is worth it depends on what an extra relevant item is worth, which only an
+  online test can say (see "How I would A/B test this recommender"). Parts of the pipeline buy little: removing
+  ALS / co-purchase scores or age-group popularity costs about 0.0005 MAP@12, source ranks nothing measurable,
+  and co-purchase is the weakest candidate source (removing it costs 0.008 of union recall). These are candidates
+  for simplification, but I did not test removing them together.
+- **Accuracy vs latency.** Latency is not the constraint: a whole request, including scoring about 290 candidates,
+  takes about 1.5 ms locally. The cost is elsewhere: candidate generation and features are too slow and need full history, so they run in batch, and
+  recommendations are only as fresh as the last snapshot.
+- **Coverage.** The ranker only serves customers in the precomputed table; everyone else gets popularity. That also
+  matches the finding that for customers with no history the ranker is worse than popularity.
+- **Training cost.** At this scale (10% of customers) building a week of candidates takes about 15 seconds and training
+  about 20 seconds. I did not measure the full 31M-row data, which is about ten times larger.
+
+## Limitations
+
+- **Sample and scope.** Last 16 weeks, a 10% customer sample, and only customers who bought in the target week are
+  evaluated. Absolute MAP@12 values are low and not comparable with the Kaggle leaderboard; compare rows, not levels.
+- **Two weeks, large week-to-week variation.** Popularity alone scores 0.0053 on the validation week and 0.0112 on the
+  test week, so levels move a lot between weeks. The ranker's gain over "buy again" was 19.6% on validation and 14.9% on
+  test; the test figure is the honest one, since the number of training weeks was chosen on the validation week.
+- **Noise.** Differences below about 0.0006 MAP@12 between runs are within noise (seed and data-order effects).
+- **Reach.** 83% of purchased articles are not in the candidate set on the test week, so most purchases are out of
+  reach of the ranker.
+- **Offline only.** No online evidence. The uplifts in the experiment-design section are assumptions; an offline gain
+  does not say how much purchases or revenue would move.
+- **No history.** The ranker is worse than popularity for customers with no purchase history in the window. (That
+  finding comes from the test week and is a post-hoc observation, not a pre-planned hypothesis.)
+- **Features not used.** No images, product text, sessions, discounts or stock.
+- **Untuned.** Model settings are the defaults I fixed in advance; no hyperparameter search.
+- **Deployment.** The public demo serves a synthetic model. The H&M artifact table covers 2,000 customers of a 10%
+  sample and is a fixed snapshot. The API has no authentication or rate limiting.
+- **Experiments.** Cookie Cats has no timestamps or covariates and an unexplained sample-ratio warning; the H&M
+  simulations assume every customer's outcome is known at every look and a multiplicative treatment effect.
+
+## Setup and how to reproduce
 
 ```bash
 pip install -e ".[dev]"
@@ -47,6 +149,13 @@ Raw data is not committed (Kaggle competition licence and size). To get it:
     `python scripts/smoke_test.py <url>` checks a running service.
 11. `python scripts/build_serving.py` builds the serving artifacts; `python scripts/track_results.py`
     logs the saved results to MLflow (see "Serving, tracking and CI").
+12. `python scripts/final_eval.py --target val` is a dry run of the final evaluation on the validation week;
+    `python scripts/final_eval.py --target test` is the single evaluation of the held-out test week. Run the test
+    one only once you have finished choosing models and settings.
+
+Each script writes a JSON file to `results/`, which is what the tables in this README are taken from. The expensive
+steps (the ranker, drift and final evaluation scripts) take roughly 5 to 15 minutes each on a laptop and need several GB of
+free memory.
 
 Dependencies are split into extras: the base install is what the serving image needs; `.[train]` adds
 DuckDB, SciPy, `implicit` and scikit-learn; `.[serve]` adds FastAPI and uvicorn; `.[tracking]` adds
@@ -98,7 +207,7 @@ Every result reported below states the sample it was computed on.
 | Serving split | Candidates and features precomputed in batch, ranker scored per request | Candidate generation is slow and needs full history; scoring about 290 rows is cheap. Cost: recommendations are as fresh as the last snapshot. |
 | Artifact format | LightGBM text model, parquet of candidate rows, JSON for popularity and metadata | Portable and inspectable; the service loads it with LightGBM, pandas and numpy only. |
 | Fallback | Global popularity of the snapshot's last 7 days | The best non-personalised list from Day 2; used for any customer not in the table. |
-| Snapshot date | 2020-09-09 (validation-week start) | Keeps the test week untouched for the final evaluation. |
+| Snapshot date | 2020-09-09 (validation-week start) | Kept the test week untouched until the final evaluation. |
 | Packaging | Base install = serving runtime; training, serving, tracking and dev in extras | A slim image and a faster build; a test checks the API imports no training code. |
 | Tracking backend | MLflow with SQLite (`mlflow-skinny` + SQLAlchemy + Alembic) | MLflow 3.x refuses its file store by default; skinny is enough to log and read runs. |
 | Deployed model | Synthetic demo model baked into the image | The H&M data licence forbids redistribution, and per-customer rows derived from it should not be in a public repo or image. Same code path as the H&M model. |
@@ -270,7 +379,8 @@ The ranker beats the reference on all three metrics, by about 20% relative on MA
 model) gives a MAP@12 difference of +0.0045 with a 95% interval of [0.0028, 0.0062]. Two caveats:
 that interval only covers which customers happened to buy that week, not other samples or other
 training seeds, and the number of training weeks was chosen on this same validation week (below),
-so 0.0279 is a little optimistic. The test week has not been used.
+so 0.0279 is a little optimistic. The test week was not used at this stage; see "Final test-week evaluation" for
+the result there.
 
 **Does more training data help?** Yes, up to a point (full model, 3 seeds each):
 
@@ -616,8 +726,8 @@ docker run -p 8000:8000 -v "$PWD/artifacts-demo:/app/artifacts:ro" hm-recsys
 ```
 
 **The snapshot is as of 2020-09-09** (the start of the validation week): the model is trained on the 4
-weeks before it, and the candidate rows use purchases before it. The test week is not used, so the
-final test stays untouched. A production system would rebuild this weekly. The demo table holds 2,000 of
+weeks before it, and the candidate rows use purchases before it. The test week is not used for this snapshot
+(it was evaluated separately, once; see "Final test-week evaluation"). A production system would rebuild this weekly. The demo table holds 2,000 of
 the 59,640 sampled customers (a reproducible sample of customers with a purchase in the 8 weeks before the
 snapshot, chosen without looking at the following week); everyone else gets the popularity fallback.
 
@@ -754,7 +864,75 @@ about 10 times larger). What I would add, as a proposal that these results neith
    previous weeks; a relative drop of more than about 5% (the size of the 3-week effect) triggers a retrain and a
    look at the data. Labels arrive a week late, so this is the slowest check and the only one that measures quality.
 Alert thresholds for the first three are conventions and would need calibrating on a live system. Performance
-monitoring over time was not run here, because the weeks after validation are the untouched test week.
+monitoring over time was not run here: it needs several weeks after the snapshot, and only one (the test week) is
+left, which was reserved for the final evaluation.
+
+## Final test-week evaluation (Day 10)
+
+The held-out test week, 2020-09-16 to 2020-09-22, was evaluated once, with `python scripts/final_eval.py --target test`
+(results in `results/final_eval_test.json`). What was fixed before looking at it: the three models (popularity,
+buy again + popularity, the LightGBM ranker); the ranker's settings (the headline settings from the ranker section, no
+tuning, no early stopping); that it is retrained on the 4 weeks that end right before the target week (here 2020-08-19
+to 2020-09-15, so the validation week is a training week and the test week never is); and that all three seeds are
+reported. Before that, the same script ran on the validation week as a dry run and reproduced every validation number
+in this README exactly, so the code path is the one already documented (`results/final_eval_val.json`).
+One thing I did look at before this: the exploratory statistics (weekly purchase counts, repeat rate, article
+concentration) were computed over all 16 weeks, including the test week. They did not feed into any model or choice.
+
+**Sample:** the 10% customer sample, 6,972 customers who bought in the test week (21,715 purchased articles). Training
+rows for the ranker: 7,421,690 candidate rows, 14,085 purchased.
+
+| Model | MAP@12 | recall@12 | NDCG@12 |
+|---|---|---|---|
+| Popularity (last 7 days) | 0.0112 | 0.0298 | 0.0191 |
+| Buy again + popularity | 0.0267 | 0.0561 | 0.0387 |
+| LightGBM ranker, seed 0 | 0.0305 | 0.0628 | 0.0446 |
+| LightGBM ranker, seed 1 | 0.0312 | 0.0641 | 0.0450 |
+| LightGBM ranker, seed 2 | 0.0303 | 0.0637 | 0.0444 |
+| **Ranker, mean of 3 seeds** | **0.0306** | **0.0635** | **0.0446** |
+
+Paired bootstrap over customers (2,000 resamples) of the MAP@12 difference, ranker minus "buy again": seed 0 +0.0038
+(95% interval 0.0019 to 0.0057), seed 1 +0.0045 (0.0026 to 0.0064), seed 2 +0.0036 (0.0017 to 0.0054); the difference
+was above zero in every resample. As before, that interval only covers which customers bought that week.
+
+**Validation vs. test.**
+
+| Model | MAP@12 validation | MAP@12 test | recall@12 validation | recall@12 test |
+|---|---|---|---|---|
+| Popularity | 0.0053 | 0.0112 | 0.0198 | 0.0298 |
+| Buy again + popularity | 0.0233 | 0.0267 | 0.0458 | 0.0561 |
+| Ranker (mean of 3 seeds) | 0.0279 | 0.0306 | 0.0548 | 0.0635 |
+| Ranker gain over buy again | +19.6% | +14.9% | +19.6% | +13.3% |
+
+The ranking of the models holds, and the ranker's gain is smaller on the test week (14.9% vs. 19.6% on MAP@12; NDCG@12
+15.3% vs. 19.3%), as expected when the number of training weeks was chosen on the validation week. All models score higher on
+the test week, popularity most of all (0.0053 to 0.0112), so levels are not comparable between weeks. The candidates
+contain 16.9% of the purchased articles on the test week (14.6% on validation).
+
+**By segment** (MAP@12 and recall@12, ranker seed 0):
+
+| Segment | Customers | Popularity | Buy again + popularity | Ranker |
+|---|---|---|---|---|
+| Returning (bought before in the window) | 5,360 | 0.0112 / 0.0293 | 0.0313 / 0.0635 | **0.0376 / 0.0740** |
+| No history | 1,612 | 0.0113 / 0.0314 | 0.0113 / 0.0314 | 0.0068 / 0.0255 |
+| Age < 25 | 1,872 | 0.0155 / 0.0423 | 0.0290 / 0.0633 | 0.0311 / 0.0717 |
+| Age 25-34 | 2,219 | 0.0110 / 0.0273 | 0.0310 / 0.0582 | 0.0340 / 0.0636 |
+| Age 35-44 | 719 | 0.0108 / 0.0238 | 0.0230 / 0.0488 | 0.0282 / 0.0499 |
+| Age 45-54 | 1,285 | 0.0061 / 0.0201 | 0.0237 / 0.0501 | 0.0290 / 0.0594 |
+| Age 55+ | 852 | 0.0103 / 0.0283 | 0.0186 / 0.0497 | 0.0245 / 0.0564 |
+| Age unknown | 25 | 0.0200 / 0.0400 | 0.0077 / 0.0533 | 0.0233 / 0.0867 |
+
+- **Returning customers:** the ranker is 20.2% better than "buy again" on MAP@12 (0.0376 vs. 0.0313) and its recall@12
+  is 0.0740 vs. 0.0635.
+- **Customers with no history are worse off with the ranker:** 0.0068 vs. 0.0113 for plain popularity (about 40% lower),
+  and recall@12 0.0255 vs. 0.0314. Their candidates are only popular articles, so the ranker has little to rank on and
+  does worse than the popularity order. On the validation week the same comparison went the other way (0.0075 vs. 0.0062),
+  so this is week-dependent, but it is a reason to give these customers the popularity list directly. The service
+  already does: its table only holds customers who have purchase history, and every other id falls back to popularity.
+  This finding is a post-hoc observation from the test week, not a hypothesis I planned to test, so I did not
+  change anything because of it and report no adjusted number.
+- **Age groups:** the ranker is ahead of "buy again" in every group; the groups are small, so the differences between
+  them are noisy, and the 25 customers with unknown age say nothing.
 
 ## Layout
 
@@ -775,6 +953,9 @@ deploy/demo-artifacts/     synthetic demo model baked into the image (what Rende
 render.yaml                Render Blueprint (free web service, deploy after CI)
 src/hm_recsys/demo.py      small synthetic data for tests and the CI smoke test
 Dockerfile                 serving image (serve extra only; artifacts mounted)
-scripts/                   download, prepare, EDA, baselines
-tests/                     unit tests on synthetic fixtures
+scripts/                   one script per stage: download, prepare, EDA, baselines, candidates, ranker,
+                           A/B analysis, experiment simulations, drift check, build serving, final evaluation
+results/                   the JSON behind every table in this README
+tests/                     unit tests on synthetic fixtures (no network, no data download)
+.github/workflows/ci.yml   ruff + pytest, and a Docker build with a smoke test of the running container
 ```
