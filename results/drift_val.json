@@ -1,0 +1,388 @@
+{
+  "sample": {
+    "first_date": "2020-06-03",
+    "last_date": "2020-09-22",
+    "weeks": 16,
+    "customer_fraction": 0.1,
+    "rows": 514885,
+    "customers": 59640,
+    "articles": 29537,
+    "split": {
+      "val_start": "2020-09-09",
+      "test_start": "2020-09-16",
+      "test_end_exclusive": "2020-09-23"
+    },
+    "customers_with_age_rows": 59640,
+    "articles_rows": 105542
+  },
+  "snapshot_cutoff": "2020-09-09",
+  "training_week_cutoffs_most_recent_first": [
+    "2020-09-02",
+    "2020-08-26",
+    "2020-08-19",
+    "2020-08-12",
+    "2020-08-05",
+    "2020-07-29",
+    "2020-07-22"
+  ],
+  "val_rows": 1806603,
+  "noise_floor_customer_halves_one_week": {
+    "rows": 1884290,
+    "summary": {
+      "mean_psi": 0.0016600284831579254,
+      "max_psi": 0.009589817166427662,
+      "features_moderate_or_major": 0,
+      "features_major": 0
+    }
+  },
+  "feature_psi_train_vs_val": {
+    "training_rows": 7344583,
+    "summary": {
+      "mean_psi": 0.08858588745978555,
+      "max_psi": 1.1330003379056155,
+      "features_moderate_or_major": 5,
+      "features_major": 2
+    },
+    "features": {
+      "a_days_since_first": {
+        "psi": 1.1330003379056155,
+        "status": "major",
+        "group": "article"
+      },
+      "c_days_since_first": {
+        "psi": 0.7787212765473738,
+        "status": "major",
+        "group": "customer"
+      },
+      "a_product_type": {
+        "psi": 0.1895892698180826,
+        "status": "moderate",
+        "group": "article"
+      },
+      "a_department": {
+        "psi": 0.1378824414769197,
+        "status": "moderate",
+        "group": "article"
+      },
+      "a_pop7": {
+        "psi": 0.11784393008232939,
+        "status": "moderate",
+        "group": "article"
+      },
+      "a_pop28": {
+        "psi": 0.09281644614494415,
+        "status": "stable",
+        "group": "article"
+      },
+      "a_product_group": {
+        "psi": 0.06993268180650608,
+        "status": "stable",
+        "group": "article"
+      },
+      "a_mean_price": {
+        "psi": 0.05630869696879524,
+        "status": "stable",
+        "group": "article"
+      },
+      "a_colour": {
+        "psi": 0.05452531411206238,
+        "status": "stable",
+        "group": "article"
+      },
+      "a_trend": {
+        "psi": 0.05251353037528929,
+        "status": "stable",
+        "group": "article"
+      },
+      "a_appearance": {
+        "psi": 0.042349311458660166,
+        "status": "stable",
+        "group": "article"
+      },
+      "c_days_since_last": {
+        "psi": 0.028563042498115986,
+        "status": "stable",
+        "group": "customer"
+      },
+      "c_mean_price": {
+        "psi": 0.02840011902297562,
+        "status": "stable",
+        "group": "customer"
+      },
+      "a_pop_all": {
+        "psi": 0.02017936806380774,
+        "status": "stable",
+        "group": "article"
+      },
+      "p_age_pop7": {
+        "psi": 0.017534143288057216,
+        "status": "stable",
+        "group": "age_popularity"
+      },
+      "c_n_purchases": {
+        "psi": 0.017468319111126472,
+        "status": "stable",
+        "group": "customer"
+      },
+      "c_n_articles": {
+        "psi": 0.017311148628304893,
+        "status": "stable",
+        "group": "customer"
+      },
+      "a_days_since_last": {
+        "psi": 0.015011596123200781,
+        "status": "stable",
+        "group": "article"
+      },
+      "p_days_since_bought": {
+        "psi": 0.010979991908966306,
+        "status": "stable",
+        "group": "pair_history"
+      },
+      "c_online_share": {
+        "psi": 0.007644779031714507,
+        "status": "stable",
+        "group": "customer"
+      },
+      "p_type_share": {
+        "psi": 0.005102446562132983,
+        "status": "stable",
+        "group": "pair_history"
+      },
+      "p_colour_share": {
+        "psi": 0.004833624884524146,
+        "status": "stable",
+        "group": "pair_history"
+      },
+      "c_n_last28": {
+        "psi": 0.004418901686749492,
+        "status": "stable",
+        "group": "customer"
+      },
+      "c_age": {
+        "psi": 0.004016884475918309,
+        "status": "stable",
+        "group": "customer"
+      },
+      "p_als_score": {
+        "psi": 0.003947040180370549,
+        "status": "stable",
+        "group": "cf_scores"
+      },
+      "p_price_ratio": {
+        "psi": 0.003854210453115102,
+        "status": "stable",
+        "group": "pair_history"
+      },
+      "a_index_group": {
+        "psi": 0.003234477182932477,
+        "status": "stable",
+        "group": "article"
+      },
+      "p_cop_score": {
+        "psi": 0.0026791677948912224,
+        "status": "stable",
+        "group": "cf_scores"
+      },
+      "rank_buy_again": {
+        "psi": 0.0011642635024891915,
+        "status": "stable",
+        "group": "source_ranks"
+      },
+      "rank_pop": {
+        "psi": 0.000721147226708289,
+        "status": "stable",
+        "group": "source_ranks"
+      },
+      "p_n_bought": {
+        "psi": 0.0006806686745291015,
+        "status": "stable",
+        "group": "pair_history"
+      },
+      "rank_copurchase": {
+        "psi": 9.950130479484372e-05,
+        "status": "stable",
+        "group": "source_ranks"
+      },
+      "rank_als": {
+        "psi": 6.207870919350952e-06,
+        "status": "stable",
+        "group": "source_ranks"
+      }
+    }
+  },
+  "weekly_psi_vs_val": {
+    "2020-09-02": {
+      "mean_psi": 0.1672315626892716,
+      "max_psi": 4.622216861508095,
+      "features_moderate_or_major": 4,
+      "features_major": 2
+    },
+    "2020-08-26": {
+      "mean_psi": 0.20740371257341786,
+      "max_psi": 5.064085697736522,
+      "features_moderate_or_major": 6,
+      "features_major": 2
+    },
+    "2020-08-19": {
+      "mean_psi": 0.2808149302588822,
+      "max_psi": 6.235724616539738,
+      "features_moderate_or_major": 8,
+      "features_major": 3
+    },
+    "2020-08-12": {
+      "mean_psi": 0.38872798139455333,
+      "max_psi": 7.425514435434961,
+      "features_moderate_or_major": 11,
+      "features_major": 6
+    },
+    "2020-08-05": {
+      "mean_psi": 0.38343705499232505,
+      "max_psi": 7.662580199080046,
+      "features_moderate_or_major": 12,
+      "features_major": 5
+    },
+    "2020-07-29": {
+      "mean_psi": 0.41949050168003565,
+      "max_psi": 8.155788630860982,
+      "features_moderate_or_major": 14,
+      "features_major": 5
+    },
+    "2020-07-22": {
+      "mean_psi": 0.48711671147683255,
+      "max_psi": 8.22627944274623,
+      "features_moderate_or_major": 18,
+      "features_major": 8
+    }
+  },
+  "score_psi_last_training_week_vs_val": {
+    "psi": 0.004312942048553543,
+    "status": "stable",
+    "reference_mean": -1.7277821882934787,
+    "current_mean": -1.8030306782281387,
+    "reference_std": 1.622669917590125,
+    "current_std": 1.635711997611792
+  },
+  "staleness": {
+    "0": {
+      "weeks_older": 0,
+      "training_cutoffs": [
+        "2020-09-02",
+        "2020-08-26",
+        "2020-08-19",
+        "2020-08-12"
+      ],
+      "map@12_by_seed": [
+        0.02743801980145792,
+        0.02674279574676448,
+        0.02761558143947755
+      ],
+      "recall@12_by_seed": [
+        0.053744248976190935,
+        0.05259429907003928,
+        0.05460557478557189
+      ],
+      "ndcg@12_by_seed": [
+        0.0396470108640137,
+        0.03875686073275215,
+        0.040141925904994546
+      ],
+      "feature_psi_vs_val": {
+        "mean_psi": 0.08858588745978555,
+        "max_psi": 1.1330003379056155,
+        "features_moderate_or_major": 5,
+        "features_major": 2
+      }
+    },
+    "1": {
+      "weeks_older": 1,
+      "training_cutoffs": [
+        "2020-08-26",
+        "2020-08-19",
+        "2020-08-12",
+        "2020-08-05"
+      ],
+      "map@12_by_seed": [
+        0.027299601169329626,
+        0.028086019588171286,
+        0.027267934012248717
+      ],
+      "recall@12_by_seed": [
+        0.054028314437857904,
+        0.0539347072208548,
+        0.05385160533407321
+      ],
+      "ndcg@12_by_seed": [
+        0.03959064815434421,
+        0.040417102557025485,
+        0.039695954343955855
+      ],
+      "feature_psi_vs_val": {
+        "mean_psi": 0.14382231764237635,
+        "max_psi": 1.7498069469739903,
+        "features_moderate_or_major": 7,
+        "features_major": 3
+      }
+    },
+    "2": {
+      "weeks_older": 2,
+      "training_cutoffs": [
+        "2020-08-19",
+        "2020-08-12",
+        "2020-08-05",
+        "2020-07-29"
+      ],
+      "map@12_by_seed": [
+        0.0275886183495996,
+        0.027123648309526485,
+        0.027571193532798067
+      ],
+      "recall@12_by_seed": [
+        0.056724360411899925,
+        0.05512665405571785,
+        0.05557251237350971
+      ],
+      "ndcg@12_by_seed": [
+        0.04052099811692244,
+        0.039726513034104204,
+        0.04037215236873135
+      ],
+      "feature_psi_vs_val": {
+        "mean_psi": 0.18472804406614018,
+        "max_psi": 2.026044830667235,
+        "features_moderate_or_major": 9,
+        "features_major": 5
+      }
+    },
+    "3": {
+      "weeks_older": 3,
+      "training_cutoffs": [
+        "2020-08-12",
+        "2020-08-05",
+        "2020-07-29",
+        "2020-07-22"
+      ],
+      "map@12_by_seed": [
+        0.026495946828893755,
+        0.02617034893241033,
+        0.02569850711844928
+      ],
+      "recall@12_by_seed": [
+        0.0502729064060232,
+        0.05144827395810132,
+        0.05143818806373815
+      ],
+      "ndcg@12_by_seed": [
+        0.03783368343006202,
+        0.037848754935419525,
+        0.03740760775223397
+      ],
+      "feature_psi_vs_val": {
+        "mean_psi": 0.3544897122424433,
+        "max_psi": 6.5271609391189624,
+        "features_moderate_or_major": 11,
+        "features_major": 6
+      }
+    }
+  }
+}
