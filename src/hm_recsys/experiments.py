@@ -90,6 +90,15 @@ def required_sample_size(p_base: float, mde_abs: float, alpha: float = 0.05, pow
     return math.ceil((z_a + z_b) ** 2 * var / mde_abs**2)
 
 
+def required_sample_size_mean(
+    sd: float, mde_abs: float, alpha: float = 0.05, power: float = 0.8
+) -> int:
+    """Users per arm to detect an absolute change `mde_abs` in a mean whose standard deviation is
+    `sd` (same in both arms), with a two-sided z/t-test."""
+    z_a, z_b = stats.norm.ppf(1 - alpha / 2), stats.norm.ppf(power)
+    return math.ceil(2 * ((z_a + z_b) * sd / mde_abs) ** 2)
+
+
 def minimum_detectable_effect(
     p_base: float, n_per_arm: int, alpha: float = 0.05, power: float = 0.8
 ) -> float:
