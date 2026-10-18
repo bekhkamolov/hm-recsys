@@ -12,7 +12,8 @@
       "test_start": "2020-09-16",
       "test_end_exclusive": "2020-09-23"
     },
-    "customers_with_age_rows": 59640
+    "customers_with_age_rows": 59640,
+    "articles_rows": 105542
   },
   "eval_window": [
     "2020-09-09",
@@ -23,9 +24,9 @@
   "reachable_share_of_val_purchases": 0.8929110105580694,
   "build_seconds": {
     "buy again": 1.6,
-    "co-purchase": 3.2,
-    "ALS": 2.4,
-    "popularity": 0.1
+    "co-purchase": 3.3,
+    "ALS": 2.5,
+    "popularity": 0.2
   },
   "per_source": {
     "buy again": {
