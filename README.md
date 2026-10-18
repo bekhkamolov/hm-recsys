@@ -78,7 +78,7 @@ Every result reported below states the sample it was computed on.
 | Experiment windows | 56-day pre-period, 14-day outcome from 2020-08-12; population = customers with a purchase in the pre-period | Before the validation and test weeks. A 14-day window covers two weekly cycles. Customers with no recent purchase are not in the data as non-buyers. |
 | Treatment effect in simulations | Multiply each treated customer's outcome by (1 + uplift) | Simple and keeps the link between past and future spend that CUPED relies on. One possible model, not the only one. |
 | CUPED covariate | Pre-period spend, theta estimated on both arms pooled | Known before assignment, so it cannot be affected by the treatment. A second covariate (order count) added nothing. |
-| Sequential testing | 14 daily looks; Pocock and O'Brien-Fleming-style constants calibrated by simulating the null | The exact boundaries need no tables and match the textbook value in a test. |
+| Sequential testing | 14 daily looks; Pocock and O'Brien-Fleming-style constants calibrated by simulating the null | Simulation-calibrated boundaries need no lookup tables for other numbers of looks; the Pocock constant for 5 looks matches the textbook value in a test. |
 | Reference baseline | Buy again + global popularity | The age-group variant did not beat it, so the simpler one is kept (see Baselines). |
 
 ## Exploratory analysis
