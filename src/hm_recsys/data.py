@@ -102,6 +102,24 @@ def prepare_customers(customers_csv: Path, transactions_parquet: Path, out_path:
     ).fetchone()[0]
 
 
+def prepare_articles(articles_csv: Path, out_path: Path) -> int:
+    """Write the article attributes used as features (category codes only). Returns the rows."""
+    con = duckdb.connect()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    con.execute(
+        f"""
+        COPY (
+            SELECT article_id::BIGINT AS article_id, product_type_no, product_group_name,
+                   graphical_appearance_no, colour_group_code, department_no, index_group_no
+            FROM read_csv('{Path(articles_csv).as_posix()}', header=true)
+        ) TO '{Path(out_path).as_posix()}' (FORMAT parquet)
+        """
+    )
+    return con.execute(
+        f"SELECT count(*) FROM read_parquet('{Path(out_path).as_posix()}')"
+    ).fetchone()[0]
+
+
 def split_transactions(df: pd.DataFrame, split: Split) -> dict[str, pd.DataFrame]:
     """Return train / val / test frames from a transactions frame with a `t_dat` date column."""
     d = pd.to_datetime(df["t_dat"]).dt.date

@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from hm_recsys.data import make_split, prepare_customers, prepare_transactions
+from hm_recsys.data import make_split, prepare_articles, prepare_customers, prepare_transactions
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,6 +36,10 @@ def main() -> None:
         ROOT / "data" / "raw" / "customers.csv",
         ROOT / "data" / "processed" / "transactions.parquet",
         ROOT / "data" / "processed" / "customers.parquet",
+    )
+    info["articles_rows"] = prepare_articles(
+        ROOT / "data" / "raw" / "articles.csv",
+        ROOT / "data" / "processed" / "articles.parquet",
     )
     (ROOT / "data" / "processed" / "sample.json").write_text(json.dumps(info, indent=2))
     print(json.dumps(info, indent=2))

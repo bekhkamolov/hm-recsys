@@ -97,18 +97,17 @@ def item_similarity(inter: Interactions, neighbors: int = 50) -> sp.csr_matrix:
     return sp.csr_matrix((vals, (rows, cols)), shape=sim.shape, dtype=np.float32)
 
 
-def copurchase_candidates(
+def copurchase_scores(
     df: pd.DataFrame,
     cutoff: date,
     ids: Iterable,
-    n: int = 100,
+    inter: Interactions,
     recent_items: int = 10,
     neighbors: int = 50,
-    inter: Interactions | None = None,
-) -> dict:
-    """Articles most similar to the customer's `recent_items` latest purchases. Articles the
-    customer already bought are excluded (they come from the buy-again source)."""
-    inter = inter or build_interactions(df, cutoff)
+) -> tuple[list, sp.csr_matrix]:
+    """Raw co-purchase score of every article for each customer with history: the summed
+    similarity to the customer's `recent_items` latest purchases. Returns the customers that
+    have history (row order of the matrix) and the sparse score matrix (rows x articles)."""
     sim = item_similarity(inter, neighbors)
     own = own_purchases(df, cutoff, recent_items)
     ids = [c for c in ids if c in own]
@@ -121,13 +120,49 @@ def copurchase_candidates(
         (np.ones(len(rows), dtype=np.float32), (rows, cols)),
         shape=(len(ids), len(inter.articles)),
     )
-    scores = (seeds @ sim).tocsr()
+    return ids, (seeds @ sim).tocsr()
+
+
+def copurchase_candidates(
+    df: pd.DataFrame,
+    cutoff: date,
+    ids: Iterable,
+    n: int = 100,
+    recent_items: int = 10,
+    neighbors: int = 50,
+    inter: Interactions | None = None,
+) -> dict:
+    """Articles most similar to the customer's `recent_items` latest purchases. Articles the
+    customer already bought are excluded (they come from the buy-again source)."""
+    inter = inter or build_interactions(df, cutoff)
+    ids, scores = copurchase_scores(df, cutoff, ids, inter, recent_items, neighbors)
     bought = inter.matrix[[inter.customer_index[c] for c in ids]].tocsr()
     bought.data[:] = 1.0
     scores = (scores - scores.multiply(bought)).tocsr()
     scores.eliminate_zeros()
     tops = _top_n_rows(scores, n)
     return {c: [inter.articles[j] for j in top] for c, top in zip(ids, tops, strict=True)}
+
+
+def fit_als(
+    inter: Interactions,
+    factors: int = 64,
+    iterations: int = 15,
+    regularization: float = 0.01,
+    seed: int = 0,
+) -> tuple[AlternatingLeastSquares, sp.csr_matrix]:
+    """Fit ALS on the interaction matrix; returns the model and the confidence matrix used."""
+    model = AlternatingLeastSquares(
+        factors=factors,
+        iterations=iterations,
+        regularization=regularization,
+        random_state=seed,
+        calculate_training_loss=False,
+    )
+    confidence = inter.matrix.copy()
+    confidence.data = np.log1p(confidence.data) + 1.0  # repeat purchases count a bit more
+    model.fit(confidence, show_progress=False)
+    return model, confidence
 
 
 def als_candidates(
@@ -141,20 +176,13 @@ def als_candidates(
     seed: int = 0,
     inter: Interactions | None = None,
     filter_bought: bool = True,
+    fitted: tuple | None = None,
 ) -> dict:
     """Top-n articles by ALS score among articles the customer has not bought. Customers with no
-    history before the cutoff get nothing from this source."""
+    history before the cutoff get nothing from this source. Pass `fitted` (the result of
+    `fit_als`) to reuse a model."""
     inter = inter or build_interactions(df, cutoff)
-    model = AlternatingLeastSquares(
-        factors=factors,
-        iterations=iterations,
-        regularization=regularization,
-        random_state=seed,
-        calculate_training_loss=False,
-    )
-    confidence = inter.matrix.copy()
-    confidence.data = np.log1p(confidence.data) + 1.0  # repeat purchases count a bit more
-    model.fit(confidence, show_progress=False)
+    model, confidence = fitted or fit_als(inter, factors, iterations, regularization, seed)
     ids = [c for c in ids if c in inter.customer_index]
     rows = np.array([inter.customer_index[c] for c in ids])
     found, found_scores = model.recommend(
