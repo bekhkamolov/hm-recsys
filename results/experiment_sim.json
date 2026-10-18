@@ -1,0 +1,189 @@
+{
+  "sample": {
+    "first_date": "2020-06-03",
+    "last_date": "2020-09-22",
+    "weeks": 16,
+    "customer_fraction": 0.1,
+    "rows": 514885,
+    "customers": 59640,
+    "articles": 29537,
+    "split": {
+      "val_start": "2020-09-09",
+      "test_start": "2020-09-16",
+      "test_end_exclusive": "2020-09-23"
+    },
+    "customers_with_age_rows": 59640,
+    "articles_rows": 105542
+  },
+  "experiment_window": [
+    "2020-08-12",
+    "2020-08-26"
+  ],
+  "pre_period": [
+    "2020-06-17",
+    "2020-08-12"
+  ],
+  "population_in_sample": 43182,
+  "eligible_customers_full_data": 428895,
+  "population": {
+    "purchase_rate_14d": 0.202051780834607,
+    "revenue_per_user_mean": 0.02311236477220185,
+    "revenue_per_user_sd": 0.07841856200254858,
+    "revenue_cv": 3.392926806730987,
+    "corr_revenue_pre_spend": 0.31510328320718717,
+    "corr_purchase_pre_spend": 0.16836151113189599,
+    "cuped_variance_reduction_revenue": 0.0992900790879484,
+    "cuped_variance_reduction_purchase": 0.02834559843061535,
+    "two_covariate_variance_reduction_revenue": 0.09929683419323487
+  },
+  "users_per_arm_for_relative_uplift": {
+    "1%": {
+      "purchase_rate": 622248,
+      "revenue_per_user": 1807119,
+      "revenue_per_user_cuped": 1627690
+    },
+    "2%": {
+      "purchase_rate": 156135,
+      "revenue_per_user": 451780,
+      "revenue_per_user_cuped": 406923
+    },
+    "5%": {
+      "purchase_rate": 25253,
+      "revenue_per_user": 72285,
+      "revenue_per_user_cuped": 65108
+    },
+    "10%": {
+      "purchase_rate": 6424,
+      "revenue_per_user": 18072,
+      "revenue_per_user_cuped": 16277
+    }
+  },
+  "detectable_relative_uplift_revenue": {
+    "in_sample_population": {
+      "naive": 0.09148648616645638,
+      "cuped": 0.08682592536682499
+    },
+    "full_data_population": {
+      "naive": 0.02902908443637722,
+      "cuped": 0.027550266977728614
+    }
+  },
+  "detectable_relative_uplift_purchase_rate": {
+    "in_sample_population": 0.05411321966816817,
+    "full_data_population": 0.017056325544181492
+  },
+  "simulation_power": {
+    "n_per_arm_10pct": 18072,
+    "n_per_arm_5pct": 72285,
+    "aa_at_n10": {
+      "naive": {
+        "rejection_rate": 0.048,
+        "mean_relative_estimate": 0.000673182527705831,
+        "sd_relative_estimate": 0.03522590702892135,
+        "sims": 1000
+      },
+      "cuped": {
+        "rejection_rate": 0.049,
+        "mean_relative_estimate": 0.0007482152646593061,
+        "sd_relative_estimate": 0.0336493485270466,
+        "sims": 1000
+      }
+    },
+    "effect_10pct_at_n10": {
+      "naive": {
+        "rejection_rate": 0.765,
+        "mean_relative_estimate": 0.1007405007804765,
+        "sd_relative_estimate": 0.038748497731813485,
+        "sims": 1000
+      },
+      "cuped": {
+        "rejection_rate": 0.797,
+        "mean_relative_estimate": 0.10079745201867518,
+        "sd_relative_estimate": 0.03701004555892472,
+        "sims": 1000
+      }
+    },
+    "effect_5pct_at_n5": {
+      "naive": {
+        "rejection_rate": 0.756,
+        "mean_relative_estimate": 0.049886954710253804,
+        "sd_relative_estimate": 0.019065997967888177,
+        "sims": 500
+      },
+      "cuped": {
+        "rejection_rate": 0.808,
+        "mean_relative_estimate": 0.05009815302689207,
+        "sd_relative_estimate": 0.01753744929155583,
+        "sims": 500
+      }
+    }
+  },
+  "peeking": {
+    "planned_users_per_arm": 18072,
+    "sims": 3000,
+    "naive_false_positive_rate": {
+      "1": 0.04933333333333333,
+      "2": 0.08366666666666667,
+      "5": 0.13066666666666665,
+      "10": 0.18966666666666668,
+      "14": 0.215,
+      "20": 0.23466666666666666
+    },
+    "boundaries_14_looks": {
+      "pocock_z": 2.6163243882192897,
+      "obf_c": 2.1044355636743997
+    },
+    "rules_14_looks": {
+      "fixed horizon (look once at the end)": {
+        "null": {
+          "rejection_rate": 0.043,
+          "mean_share_of_planned_sample_used": 1.0
+        },
+        "effect_10pct": {
+          "rejection_rate": 0.76,
+          "mean_share_of_planned_sample_used": 1.0
+        }
+      },
+      "peeking daily at 1.96": {
+        "null": {
+          "rejection_rate": 0.215,
+          "mean_share_of_planned_sample_used": 0.8585952380952381
+        },
+        "effect_10pct": {
+          "rejection_rate": 0.8506666666666667,
+          "mean_share_of_planned_sample_used": 0.49823809523809526
+        }
+      },
+      "Bonferroni (alpha/14 per look)": {
+        "null": {
+          "rejection_rate": 0.019333333333333334,
+          "mean_share_of_planned_sample_used": 0.9883095238095239
+        },
+        "effect_10pct": {
+          "rejection_rate": 0.5006666666666667,
+          "mean_share_of_planned_sample_used": 0.7933333333333333
+        }
+      },
+      "Pocock (constant boundary)": {
+        "null": {
+          "rejection_rate": 0.04566666666666667,
+          "mean_share_of_planned_sample_used": 0.9721428571428572
+        },
+        "effect_10pct": {
+          "rejection_rate": 0.6216666666666667,
+          "mean_share_of_planned_sample_used": 0.7109285714285712
+        }
+      },
+      "O'Brien-Fleming style": {
+        "null": {
+          "rejection_rate": 0.048666666666666664,
+          "mean_share_of_planned_sample_used": 0.9906428571428572
+        },
+        "effect_10pct": {
+          "rejection_rate": 0.745,
+          "mean_share_of_planned_sample_used": 0.7796190476190475
+        }
+      }
+    }
+  }
+}
