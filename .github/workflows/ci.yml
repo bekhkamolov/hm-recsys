@@ -60,6 +60,16 @@ jobs:
           r = json.load(open('unknown.json'))
           assert r['source'] == 'popularity_fallback' and len(r['article_ids']) == 12, r
           "
+      - name: /stats counted the two successful requests (one ranked, one fallback)
+        run: |
+          curl -fsS http://localhost:8000/stats > stats.json
+          cat stats.json
+          python3 -c "
+          import json
+          s = json.load(open('stats.json'))
+          assert (s['requests'], s['ranker_requests'], s['fallback_requests']) == (2, 1, 1), s
+          assert s['fallback_share'] == 0.5 and s['scoring_ms_mean'] > 0, s
+          "
       - name: Invalid request returns 422
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8000/recommend")
@@ -73,6 +83,12 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:9100/recommend?customer_id=x")
           echo "HTTP $code"
           test "$code" = "503"
+      - name: Image serves its built-in demo model with no mount (as deployed on Render)
+        run: |
+          docker run -d --name demo -e ARTIFACT_DIR=/app/demo-artifacts -p 9200:8000 hm-recsys
+          for i in $(seq 1 30); do curl -fsS http://localhost:9200/health > demo.json && break; sleep 1; done
+          python3 -c "import json; h = json.load(open('demo.json')); assert h['ready'] is True, h"
+          python3 scripts/smoke_test.py http://localhost:9200 --customer c0001
       - name: Container listens on $PORT (as set by Render)
         run: |
           docker run -d --name app2 -e PORT=9000 -p 9000:9000 -v "$PWD/artifacts-demo:/app/artifacts:ro" hm-recsys

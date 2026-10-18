@@ -1,0 +1,15 @@
+# Render Blueprint: deploys the Docker image as a free web service in Frankfurt (EU).
+# The service uses the small synthetic demo model that is baked into the image
+# (deploy/demo-artifacts, made by scripts/make_demo_artifacts.py), not H&M data. No secrets needed.
+services:
+  - type: web
+    name: hm-recsys
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass  # redeploy only after CI (tests + Docker smoke test) passes
+    envVars:
+      - key: ARTIFACT_DIR
+        value: /app/demo-artifacts

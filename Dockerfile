@@ -2,9 +2,9 @@
 # back to popularity for unknown customers.
 #   docker build -t hm-recsys .
 #   docker run -p 8000:8000 -v "$PWD/artifacts:/app/artifacts:ro" hm-recsys
-# The image has only the serving dependencies (no duckdb, implicit or MLflow). Model artifacts are
-# not part of the image: build them with scripts/build_serving.py (H&M data) or
-# scripts/make_demo_artifacts.py (synthetic data) and mount the folder at /app/artifacts.
+# The image has only the serving dependencies (no duckdb, implicit or MLflow). Real model artifacts
+# are not part of the image: build them with scripts/build_serving.py (H&M data) and mount the
+# folder at /app/artifacts. A synthetic demo model is baked in at /app/demo-artifacts.
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -24,6 +24,10 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install ".[serve]"
+
+# A small synthetic demo model, so the image can serve out of the box (that is what runs on
+# Render: ARTIFACT_DIR=/app/demo-artifacts). It is not H&M data.
+COPY deploy/demo-artifacts ./demo-artifacts
 
 # Run as an unprivileged user.
 RUN useradd --create-home --uid 1000 app && mkdir -p /app/artifacts && chown app /app/artifacts
