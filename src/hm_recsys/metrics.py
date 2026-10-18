@@ -71,3 +71,14 @@ def evaluate(
     result = {name: total / n for name, total in out.items()}
     result["n_customers"] = n
     return result
+
+
+def evaluate_by_segment(
+    predictions: Mapping, actuals: Mapping, segments: Mapping, k: int = 12
+) -> dict[str, dict[str, float]]:
+    """Metrics per segment. `segments` maps customer -> label; customers without a label are
+    grouped as 'unknown'. Returns {label: metrics} including the customer count."""
+    groups: dict[str, dict] = {}
+    for customer, items in actuals.items():
+        groups.setdefault(segments.get(customer, "unknown"), {})[customer] = items
+    return {label: evaluate(predictions, part, k) for label, part in sorted(groups.items())}

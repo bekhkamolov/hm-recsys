@@ -80,6 +80,28 @@ def prepare_transactions(
     }
 
 
+def prepare_customers(customers_csv: Path, transactions_parquet: Path, out_path: Path) -> int:
+    """Write customer_id and age for the customers in the transaction sample. Returns the row
+    count. Age is NULL where H&M did not record it."""
+    con = duckdb.connect()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    con.execute(
+        f"""
+        COPY (
+            SELECT customer_id, age::DOUBLE AS age
+            FROM read_csv('{Path(customers_csv).as_posix()}', header=true)
+            WHERE customer_id IN (
+                SELECT DISTINCT customer_id
+                FROM read_parquet('{Path(transactions_parquet).as_posix()}')
+            )
+        ) TO '{Path(out_path).as_posix()}' (FORMAT parquet)
+        """
+    )
+    return con.execute(
+        f"SELECT count(*) FROM read_parquet('{Path(out_path).as_posix()}')"
+    ).fetchone()[0]
+
+
 def split_transactions(df: pd.DataFrame, split: Split) -> dict[str, pd.DataFrame]:
     """Return train / val / test frames from a transactions frame with a `t_dat` date column."""
     d = pd.to_datetime(df["t_dat"]).dt.date
