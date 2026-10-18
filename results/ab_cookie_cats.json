@@ -1,0 +1,140 @@
+{
+  "n_users": 90189,
+  "n_gate_30": 44700,
+  "n_gate_40": 45489,
+  "checks": {
+    "duplicate_userids": 0,
+    "missing_values": 0,
+    "users_with_zero_rounds_share": 0.0442847797403231,
+    "retention_1_among_zero_rounds": 0.021782674011016526,
+    "top5_rounds_by_arm": {
+      "gate_30": [
+        49854,
+        2961,
+        2438,
+        2251,
+        2156
+      ],
+      "gate_40": [
+        2640,
+        2294,
+        2124,
+        2063,
+        2015
+      ]
+    }
+  },
+  "srm": {
+    "chi2": 6.9024049496058275,
+    "p_value": 0.008607987810836262,
+    "expected": [
+      45094.5,
+      45094.5
+    ]
+  },
+  "retention": {
+    "retention_1": {
+      "p_a": 0.4481879194630872,
+      "p_b": 0.44228274967574577,
+      "diff": -0.005905169787341458,
+      "relative_lift": -0.01317565585974659,
+      "z": -1.7840862247974725,
+      "p_value": 0.07440965529691913,
+      "se": 0.003309892280304391,
+      "ci": [
+        -0.012392439449445217,
+        0.0005820998747623016
+      ],
+      "x_a": 20034,
+      "x_b": 20119,
+      "ci_bonferroni_2_metrics": [
+        -0.013323971372494275,
+        0.001513631797811361
+      ],
+      "bootstrap_ci": [
+        -0.012309510662729756,
+        0.0004298340951518286
+      ],
+      "verdict_vs_0.5pp": "not significant, and the interval does not rule out practically relevant effects"
+    },
+    "retention_7": {
+      "p_a": 0.19020134228187918,
+      "p_b": 0.18200004396667327,
+      "diff": -0.008201298315205913,
+      "relative_lift": -0.043119034896460164,
+      "z": -3.164358912748191,
+      "p_value": 0.001554249975614329,
+      "se": 0.0025920140082940444,
+      "ci": [
+        -0.013281552418885545,
+        -0.0031210442115262808
+      ],
+      "x_a": 8502,
+      "x_b": 8279,
+      "ci_bonferroni_2_metrics": [
+        -0.014011045583386415,
+        -0.00239155104702541
+      ],
+      "bootstrap_ci": [
+        -0.013167574548961676,
+        -0.0030912789447880393
+      ],
+      "verdict_vs_0.5pp": "statistically significant; the interval spans small and practically relevant sizes"
+    }
+  },
+  "game_rounds": {
+    "mean": {
+      "gate_30": 52.45626398210291,
+      "gate_40": 51.29877552814966
+    },
+    "median": {
+      "gate_30": 17.0,
+      "gate_40": 16.0
+    },
+    "welch_t_p": 0.37592438409326173,
+    "mann_whitney_p": 0.05020880772044255,
+    "bootstrap_mean_diff": {
+      "diff": -1.157488453953249,
+      "ci": [
+        -4.051342469180173,
+        0.9313690072354636
+      ],
+      "share_above_zero": 0.1885,
+      "n_boot": 2000
+    },
+    "bootstrap_median_diff": {
+      "diff": -1.0,
+      "ci": [
+        -1.0,
+        0.0
+      ],
+      "share_above_zero": 0.0005,
+      "n_boot": 2000
+    },
+    "winsorize_at_99.9_pct": 1073.6240000000107,
+    "bootstrap_mean_diff_winsorized": {
+      "diff": -0.09564444917356241,
+      "ci": [
+        -1.3505152003763443,
+        1.1599370735994736
+      ],
+      "share_above_zero": 0.452,
+      "n_boot": 2000
+    },
+    "mean_diff_without_largest_value": -0.04333503360787461
+  },
+  "aa_false_positive_rate_at_0.05": {
+    "simulations": 20000,
+    "retention_1": 0.0507,
+    "retention_7": 0.0507
+  },
+  "power": {
+    "alpha": 0.05,
+    "power": 0.8,
+    "min_detectable_effect_retention_1": 0.009327742440260947,
+    "min_detectable_effect_retention_7": 0.007408566088338341,
+    "users_per_arm_for_0.5pp_on_retention_7": 97679,
+    "users_per_arm_for_1.0pp_on_retention_7": 24657,
+    "users_per_arm_for_0.5pp_on_retention_1": 155447
+  }
+}

@@ -5,7 +5,7 @@ Product recommendations for a fashion retailer on the public
 dataset (real transactions), plus an experimentation module on how to measure a recommender change
 online (A/B test analysis, power, variance reduction).
 
-Status: data, evaluation, baselines, candidate generation and the ranker are done (Days 1-5); this README only
+Status: data, evaluation, baselines, candidate generation and the ranker are done (Days 1-5), as is the real A/B test analysis (Day 6); this README only
 reports numbers that were actually measured.
 
 ## Setup
@@ -32,6 +32,8 @@ Raw data is not committed (Kaggle competition licence and size). To get it:
 6. `python scripts/candidates.py` measures candidate recall per source and for the union.
 7. `python scripts/ranker.py --train-weeks 4` trains the ranker and writes the validation results,
    ablation and training-weeks comparison (about 15 minutes and 6+ GB of free memory).
+8. `python scripts/download_ab_data.py` and `python scripts/ab_cookie_cats.py` run the A/B test analysis
+   on the public Cookie Cats data (needs only the Kaggle token, no H&M data).
 
 Every result reported below states the sample it was computed on.
 
@@ -69,6 +71,9 @@ Every result reported below states the sample it was computed on.
 | Ranker settings | LambdaRank, 300 trees, lr 0.05, 31 leaves, min 50 rows per leaf, 80% subsampling, no early stopping | Fixed and untuned, so the validation week is not used to fit the model. |
 | Feature encoding | Category ids (department, colour, product type, ...) as dense codes treated as categorical by LightGBM; features stored as float32 | Raw ids are arbitrary labels and some are huge. float32 halves memory, which mattered on a 16 GB laptop. |
 | Collaborative scores | ALS dot product and co-purchase score computed for every candidate, not only those from that source | A candidate from another source still gets the information. |
+| A/B dataset | Cookie Cats (gate 30 vs 40) | Real users, user-level assignment, two binary metrics and one heavy-tailed metric. Limits are in its section. |
+| A/B tests | Two-sided; pooled z for the p-value, unpooled SE for the CI; bootstrap as a cross-check | Standard for two independent proportions; the bootstrap does not depend on the normal approximation. |
+| Practical threshold | 0.5 pp of retention (assumption) | Needed to separate "significant" from "worth acting on"; should come from business value, not from the data. |
 | Reference baseline | Buy again + global popularity | The age-group variant did not beat it, so the simpler one is kept (see Baselines). |
 
 ## Exploratory analysis
@@ -309,6 +314,92 @@ candidates at all, so no ranker on these candidates can exceed the candidate cei
 is trained only on customers who bought in the target week, which matches the evaluation but not a live
 setting where you do not know who will buy. Hyperparameters were not tuned, so this is not the best this model could do.
 
+## Experimentation A: a real A/B test (Day 6)
+
+**Data and why.** [Cookie Cats](https://www.kaggle.com/datasets/mursideyarkin/mobile-games-ab-testing-cookie-cats)
+is a public mobile-game A/B test with one row per user: the arm they were assigned to, whether they
+came back 1 and 7 days after install, and how many rounds they played (in the first 14 days, according to the dataset description).
+The change under test: the first forced waiting gate moved from level 30 (control, `gate_30`) to level 40
+(`gate_40`). I picked it because it has user-level assignment and outcomes, real (not simulated) users,
+two binary metrics and one heavy-tailed metric, which covers what the analysis steps need. H&M has no
+experiment data. Script: `python scripts/download_ab_data.py` then `python scripts/ab_cookie_cats.py`;
+numbers in `results/ab_cookie_cats.json`. Control is A, treatment is B, differences are B minus A.
+
+**Sample.** 90,189 users: 44,700 in `gate_30`, 45,489 in `gate_40`. No missing values, no duplicate
+user ids. 4.4% of users played zero rounds; they are kept (everyone assigned is analysed, whether or
+not they engaged).
+
+**Step 1: sample ratio mismatch (SRM).** *Why first:* if the arms do not have the size the design says,
+assignment or logging is broken and every later number is suspect. A chi-square test of the arm sizes
+against an even split (I assume 50/50; the dataset does not say) gives chi2 = 6.90, **p = 0.0086**. The
+arms differ by 789 users (49.6% vs 50.4%). Under the common alarm threshold of p < 0.001 this passes, at
+0.05 it fails, so it is a warning and not a verdict. I cannot investigate the cause with this data (no
+timestamps or assignment log), so the later results carry this caveat: if users were dropped from one arm
+for a reason related to the outcome, the comparison is biased.
+
+**Step 2: retention, difference in proportions.** *Why this test:* both metrics are yes/no per user, and
+the arms are independent, so the natural comparison is the difference in rates with a z-test. The
+p-value uses the pooled variance (it describes the world where both arms share one rate, the null);
+the confidence interval uses the unpooled variance (it describes the difference actually observed).
+Both tests are two-sided. The bootstrap interval resamples users with replacement, which for a 0/1
+outcome is a binomial draw per arm, and does not rely on the normal approximation.
+
+| Metric | gate_30 | gate_40 | Difference (B - A) | 95% CI (analytic) | 95% CI (bootstrap) | p-value |
+|---|---|---|---|---|---|---|
+| 1-day retention | 44.82% | 44.23% | -0.59 pp (-1.3% relative) | [-1.24, +0.06] pp | [-1.23, +0.04] pp | 0.074 |
+| 7-day retention | 19.02% | 18.20% | -0.82 pp (-4.3% relative) | [-1.33, -0.31] pp | [-1.32, -0.31] pp | 0.0016 |
+
+7-day retention is lower with the later gate, and the result survives a correction for looking at two
+retention metrics (Bonferroni, alpha 0.025: interval [-1.40, -0.24] pp still excludes zero). 1-day
+retention is not significant. The analytic and bootstrap interval ends agree to within 0.02 pp, which is what
+I expect at this sample size.
+
+**Step 3: statistical vs. practical significance.** A p-value says whether an effect is distinguishable
+from zero, not whether it matters. I assumed that a change of **0.5 percentage points** in retention is the
+smallest worth acting on. This threshold is my assumption, not from the data, and should come from the
+business (what a retained player is worth). Against it:
+- **7-day retention:** statistically significant, and the interval [-1.33, -0.31] pp spans sizes from
+  smaller than the threshold to more than twice it. So the direction is clear (the later gate hurts) but
+  the size is not pinned down.
+- **1-day retention:** not significant, and the interval [-1.24, +0.06] pp does not rule out a
+  practically relevant drop. "Not significant" here means "not enough data", not "no effect".
+
+**Step 4: game rounds (a heavy-tailed metric).** The mean is 52.46 rounds (`gate_30`) vs 51.30
+(`gate_40`), the median 17 vs 16. A Welch t-test gives p = 0.38, a Mann-Whitney test p = 0.050, and the
+bootstrap interval for the mean difference is [-4.05, +0.93]. The raw mean difference of -1.16 is almost
+entirely one user: the largest value in `gate_30` is 49,854 rounds, while the next largest is 2,961. Without
+that single user the mean difference is -0.04, and with all values capped at the 99.9th percentile
+(1,074 rounds) it is -0.10 (interval [-1.35, +1.16]). Conclusion: no evidence that the gate position changes
+how much people play, and means of this metric should not be trusted without trimming. I did not
+check whether 49,854 is a bot or a logging error.
+
+**Step 5: does the pipeline give honest p-values? (A/A check on the real users.)** I shuffled the arm
+labels 20,000 times (so there is no real difference by construction) and counted how often the test
+rejects at 0.05: 5.07% for both retention metrics. The test is calibrated on this data. This shows the
+procedure is sound, not that this particular result is.
+
+**Step 6: what could this experiment detect?** With about 44,700 users per arm, 80% power and alpha 0.05,
+the smallest detectable change is **0.93 pp for 1-day retention and 0.74 pp for 7-day retention**. The
+observed 1-day change (0.59 pp) is below what the test could reliably see, which explains the
+non-significant result. To detect 0.5 pp in 7-day retention you would need about 97,700 users per arm
+(more than twice this experiment); to detect 1.0 pp, about 24,700.
+
+**What I would conclude.** Keep the gate at level 30: moving it to 40 lowered 7-day retention by
+0.82 pp (95% CI 0.31 to 1.33 pp), did not raise engagement (rounds), and the 1-day result points the same
+way without being significant. This is the retention side only; the dataset has no revenue or ad data,
+and a later gate may have monetisation benefits that this test cannot show.
+
+**Limitations.**
+- Primary metric: I treated 7-day retention as the main metric, but I chose that after seeing both
+  results; there was no pre-registration. With two retention metrics and one engagement metric, the
+  Bonferroni check above is the minimum correction.
+- The SRM p-value of 0.0086 is unexplained, and the 50/50 design is my assumption.
+- No timestamps, so no check for novelty effects or time trends; no user covariates, so no CUPED (that
+  comes in Day 7 on H&M data) and no segment analysis; rounds played is measured after assignment, so
+  splitting users by it would bias the comparison.
+- Retention is only measured at day 1 and day 7; longer-term effects are unknown. Users may share devices
+  and are assumed independent.
+
 ## Layout
 
 ```
@@ -318,6 +409,7 @@ src/hm_recsys/baselines.py popularity, age-group popularity, buy again, fallback
 src/hm_recsys/candidates.py co-purchase, ALS, popularity and buy-again candidates, union, recall
 src/hm_recsys/features.py  candidate rows and the 33 ranking features, labels, training weeks
 src/hm_recsys/ranker.py    LightGBM LambdaRank training, top-k prediction, importance
+src/hm_recsys/experiments.py SRM, proportion tests, bootstrap, sample size and power
 scripts/                   download, prepare, EDA, baselines
 tests/                     unit tests on synthetic fixtures
 ```
