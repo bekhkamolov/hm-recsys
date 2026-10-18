@@ -19,6 +19,7 @@ from hm_recsys.experiments import (
     srm_test,
     two_proportion_test,
 )
+from hm_recsys.tracking import log_results_json
 
 ROOT = Path(__file__).resolve().parents[1]
 PRACTICAL_PP = 0.005  # assumption, not from the data: 0.5 percentage points of retention
@@ -132,6 +133,9 @@ def main() -> None:
 
     (ROOT / "results").mkdir(exist_ok=True)
     (ROOT / "results" / "ab_cookie_cats.json").write_text(json.dumps(out, indent=2))
+    log_results_json(
+        ROOT / "results" / "ab_cookie_cats.json", "hm-recsys/ab-cookie-cats", params={"day": "6"}
+    )
     print(json.dumps(out, indent=2))
 
 

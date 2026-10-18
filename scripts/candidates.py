@@ -24,6 +24,7 @@ from hm_recsys.candidates import (
     union,
 )
 from hm_recsys.data import actuals_by_customer, history_before, make_split, split_transactions
+from hm_recsys.tracking import log_results_json
 
 ROOT = Path(__file__).resolve().parents[1]
 N = 100  # candidates per source and customer
@@ -99,6 +100,9 @@ def main() -> None:
 
     (ROOT / "results").mkdir(exist_ok=True)
     (ROOT / "results" / "candidates_val.json").write_text(json.dumps(results, indent=2))
+    log_results_json(
+        ROOT / "results" / "candidates_val.json", "hm-recsys/candidates", params={"day": "3"}
+    )
 
     print(f"\nvalidation {results['eval_window']}, {len(ids)} customers")
     print(f"share of validation purchases whose article was sold before: {reachable:.3f}")

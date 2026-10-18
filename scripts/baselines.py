@@ -20,6 +20,7 @@ from hm_recsys.baselines import (
 )
 from hm_recsys.data import actuals_by_customer, make_split, split_transactions
 from hm_recsys.metrics import evaluate, evaluate_by_segment
+from hm_recsys.tracking import log_results_json
 
 ROOT = Path(__file__).resolve().parents[1]
 K = 12
@@ -63,6 +64,9 @@ def main() -> None:
         }
     (ROOT / "results").mkdir(exist_ok=True)
     (ROOT / "results" / "baselines_val.json").write_text(json.dumps(results, indent=2))
+    log_results_json(
+        ROOT / "results" / "baselines_val.json", "hm-recsys/baselines", params={"day": "2"}
+    )
 
     print(f"validation {results['eval_window']}, {len(ids)} customers")
     print("| model | MAP@12 | recall@12 | NDCG@12 |\n|---|---|---|---|")

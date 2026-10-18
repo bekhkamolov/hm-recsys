@@ -9,3 +9,8 @@ data/raw/
 data/processed/
 mlruns/
 CLAUDE.md
+mlflow.db
+mlartifacts/
+artifacts/
+artifacts-demo/
+build/

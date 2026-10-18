@@ -28,6 +28,7 @@ from hm_recsys.simulation import (
     simulate_power,
     variance_reduction,
 )
+from hm_recsys.tracking import log_results_json
 
 ROOT = Path(__file__).resolve().parents[1]
 EXP_START = date(2020, 8, 12)
@@ -163,6 +164,9 @@ def main() -> None:
 
     (ROOT / "results").mkdir(exist_ok=True)
     (ROOT / "results" / "experiment_sim.json").write_text(json.dumps(out, indent=2))
+    log_results_json(
+        ROOT / "results" / "experiment_sim.json", "hm-recsys/experiment-sim", params={"day": "7"}
+    )
     print(json.dumps(out, indent=2))
 
 

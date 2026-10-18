@@ -30,6 +30,7 @@ from hm_recsys.features import (
 )
 from hm_recsys.metrics import average_precision_at_k, evaluate, evaluate_by_segment
 from hm_recsys.ranker import feature_importance, predict_top_k, train_ranker
+from hm_recsys.tracking import log_results_json
 
 ROOT = Path(__file__).resolve().parents[1]
 K = 12
@@ -187,6 +188,11 @@ def main() -> None:
 
     (ROOT / "results").mkdir(exist_ok=True)
     (ROOT / "results" / "ranker_val.json").write_text(json.dumps(results, indent=2))
+    log_results_json(
+        ROOT / "results" / "ranker_val.json",
+        "hm-recsys/ranker",
+        params={"day": "4-5", "train_weeks": str(args.train_weeks), "seeds": str(args.seeds)},
+    )
 
     def row(name, m):
         return f"| {name} | {m['map@12']:.4f} | {m['recall@12']:.4f} | {m['ndcg@12']:.4f} |"
